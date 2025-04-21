@@ -1,0 +1,68 @@
+name: Bug Report
+description: Report a bug or unexpected behavior in LogChef
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## LogChef Bug Report
+        Thanks for taking the time to fill out this bug report!
+        Please provide as much information as possible to help us diagnose and fix the issue.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear and concise description of what the bug is.
+      placeholder: When I tried to view logs from X source, the UI showed Y error...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+      placeholder: I expected the logs to be displayed correctly...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: How can we reproduce this issue? Please be as specific as possible.
+      placeholder: |
+        1. Go to '...'
+        2. Click on '....'
+        3. Scroll down to '....'
+        4. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Information about your setup
+      placeholder: |
+        - LogChef version: [e.g. v0.1.0]
+        - OS: [e.g. Ubuntu 22.04, macOS 13.0]
+        - Browser: [e.g. Chrome 109, Safari 16]
+        - Deployment method: [e.g. Docker, binary]
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Please copy and paste any relevant log output (if applicable)
+      render: shell
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Add any other context about the problem here (screenshots, configuration, etc.)

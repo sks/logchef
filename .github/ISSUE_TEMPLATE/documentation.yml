@@ -1,0 +1,65 @@
+name: Documentation Improvement
+description: Suggest an improvement to LogChef documentation
+title: "[Docs]: "
+labels: ["documentation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## LogChef Documentation Improvement
+        Thanks for helping us improve our documentation!
+        Clear and accurate documentation is essential for any project.
+
+  - type: dropdown
+    id: doc-type
+    attributes:
+      label: Type of Documentation
+      description: What type of documentation needs improvement?
+      options:
+        - User Guide
+        - API Documentation
+        - Installation Instructions
+        - Configuration Reference
+        - Examples/Tutorials
+        - README/Project Description
+        - Other (please describe below)
+    validations:
+      required: true
+
+  - type: textarea
+    id: location
+    attributes:
+      label: Location
+      description: Where is the documentation that needs to be improved?
+      placeholder: URL, file path, or section description
+    validations:
+      required: true
+
+  - type: textarea
+    id: issue
+    attributes:
+      label: What's the issue?
+      description: Describe what's wrong, unclear, or missing in the documentation
+      placeholder: The installation instructions don't mention the required dependencies...
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested improvement
+      description: How do you think the documentation should be improved?
+      placeholder: Add a section explaining how to configure X...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: willingness
+    attributes:
+      label: Contribution
+      description: Would you be willing to submit a PR with this documentation improvement?
+      options:
+        - Yes, I'd like to contribute this documentation
+        - No, I'm hoping someone else can add this
+    validations:
+      required: false

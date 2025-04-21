@@ -1,0 +1,28 @@
+FROM alpine:3.19
+
+# Install runtime dependencies
+RUN apk --no-cache add ca-certificates tzdata
+
+# Create non-root user and prepare directories
+RUN adduser -D -u 1000 logchef && \
+    mkdir -p /data /etc/logchef && \
+    chown -R logchef:logchef /data /etc/logchef
+
+# Copy the pre-built binary from GoReleaser
+COPY logchef /usr/local/bin/logchef
+
+# Copy config file
+COPY config.toml /etc/logchef/config.toml
+
+# Switch to non-root user
+USER logchef
+
+# Set the working directory
+WORKDIR /data
+
+# Expose ports
+EXPOSE 8080
+
+# Set entry point
+ENTRYPOINT ["/usr/local/bin/logchef"]
+CMD ["-config", "/etc/logchef/config.toml"] 

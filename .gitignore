@@ -41,3 +41,5 @@ frontend/stats.html
 # Docs
 docs/dist/*
 docs/node_modules/*
+
+dist/*

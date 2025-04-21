@@ -1,0 +1,76 @@
+name: Performance Issue
+description: Report a performance problem or bottleneck in LogChef
+title: "[Performance]: "
+labels: ["performance", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## LogChef Performance Issue
+        Thanks for reporting a performance issue!
+        Please provide as much information as possible to help us diagnose and fix the problem.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the performance issue
+      description: A clear and concise description of what the performance problem is.
+      placeholder: LogChef becomes unresponsive when querying over 1 million log entries...
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Information about your setup
+      placeholder: |
+        - LogChef version: [e.g. v0.1.0]
+        - OS: [e.g. Ubuntu 22.04, macOS 13.0]
+        - Deployment method: [e.g. Docker, binary]
+        - System resources: [e.g. 4 CPUs, 8GB RAM]
+        - Database size/metrics: [e.g. 500MB, 10M log entries]
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: How can we reproduce this performance issue?
+      placeholder: |
+        1. Set up LogChef with X configuration
+        2. Import Y amount of data
+        3. Perform Z operation
+        4. Observe slow performance
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected performance
+      description: What performance would you consider acceptable?
+      placeholder: The query should complete in under 5 seconds...
+    validations:
+      required: true
+
+  - type: textarea
+    id: profile
+    attributes:
+      label: Profiling information
+      description: If available, include any profiling data, metrics, or traces
+      render: shell
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Please copy and paste any relevant log output
+      render: shell
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Add any other context about the performance issue
