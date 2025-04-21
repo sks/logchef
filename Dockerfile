@@ -16,9 +16,10 @@ ENV SQLC_VERSION=1.28.0
 RUN apt-get install -y curl wget xz-utils libsqlite3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js & pnpm
-ENV NODE_URL=https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz
-RUN wget -qO /tmp/node.tar.xz ${NODE_URL} \
+# Install Node.js & pnpm - architecture aware
+RUN ARCH=$([ "$TARGETARCH" = "amd64" ] && echo "x64" || echo "arm64") \
+    && NODE_URL=https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${ARCH}.tar.xz \
+    && wget -qO /tmp/node.tar.xz ${NODE_URL} \
     && mkdir -p /usr/local/lib/nodejs \
     && tar -xJf /tmp/node.tar.xz -C /usr/local/lib/nodejs --strip-components=1 \
     && rm /tmp/node.tar.xz
@@ -26,7 +27,7 @@ ENV PATH="/usr/local/lib/nodejs/bin:$PATH"
 RUN npm install -g pnpm@$PNPM_VERSION
 
 # Download and install sqlc binary directly (instead of go install)
-RUN wget -qO /tmp/sqlc.tar.gz https://downloads.sqlc.dev/sqlc_${SQLC_VERSION}_linux_amd64.tar.gz \
+RUN wget -qO /tmp/sqlc.tar.gz https://downloads.sqlc.dev/sqlc_${SQLC_VERSION}_linux_${TARGETARCH}.tar.gz \
     && tar -xzf /tmp/sqlc.tar.gz -C /tmp \
     && mv /tmp/sqlc /usr/local/bin/ \
     && chmod +x /usr/local/bin/sqlc \

@@ -65,6 +65,17 @@ run-docs:
     @echo "Starting documentation development server..."
     cd docs && npm run dev
 
+# Build the documentation
+build-docs:
+    @echo "Building documentation site..."
+    cd docs && npm install && npm run build
+
+# Setup docs custom domain (only run once after creating GitHub Pages)
+setup-docs-domain:
+    @echo "Setting up custom domain for documentation..."
+    echo "logchef.app" > docs/public/CNAME
+    @echo "Created CNAME file. Make sure to set up DNS records pointing to GitHub Pages."
+
 dev-docker:
     cd dev && docker compose up
 
@@ -123,6 +134,19 @@ build-docker:
         --build-arg APP_VERSION="{{build_info}}" \
         --build-arg TARGETOS=linux \
         --build-arg TARGETARCH=amd64 \
+        --tag "{{docker-image}}:{{docker-tag}}" \
+        --tag "{{docker-image}}:latest" \
+        --file Dockerfile \
+        .
+
+# Build for ARM64 architecture (Apple Silicon)
+build-docker-arm:
+    @echo "Building Docker image {{docker-image}}:{{docker-tag}} for linux/arm64..."
+    @echo "Embedding build string: {{build_info}}"
+    DOCKER_BUILDKIT=1 docker build \
+        --build-arg APP_VERSION="{{build_info}}" \
+        --build-arg TARGETOS=linux \
+        --build-arg TARGETARCH=arm64 \
         --tag "{{docker-image}}:{{docker-tag}}" \
         --tag "{{docker-image}}:latest" \
         --file Dockerfile \

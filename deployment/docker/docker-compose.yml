@@ -27,26 +27,19 @@ services:
     image: clickhouse/clickhouse-server:24.8.4
     container_name: clickhouse
     restart: on-failure
-    user: "101:101"
     configs:
       - source: clickhouse_config
         target: /etc/clickhouse-server/config.d/logchef.xml
-        uid: "101"
-        gid: "101"
         mode: 0444
       - source: clickhouse_users
         target: /etc/clickhouse-server/users.d/logchef.xml
-        uid: "101"
-        gid: "101"
         mode: 0444
       - source: clickhouse_init
         target: /docker-entrypoint-initdb.d/init-db.sh
-        uid: "101"
-        gid: "101"
         mode: 0555
     volumes:
-      - clickhouse-data:/var/lib/clickhouse
-      - clickhouse-logs:/var/log/clickhouse-server
+      - clickhouse-data:/var/lib/clickhouse:delegated
+      - clickhouse-logs:/var/log/clickhouse-server:delegated
     cap_add:
       - SYS_NICE
       - IPC_LOCK
