@@ -47,9 +47,9 @@ import type { SaveQueryFormData } from '@/views/explore/types'
 import type { SavedTeamQuery } from '@/api/savedQueries'
 import { useExploreUrlSync } from '@/composables/useExploreUrlSync'
 import { useQuery } from '@/composables/useQuery'
-import type { EditorMode } from '@/views/explore/types'
+import type { EditorMode, EditorChangeEvent } from '@/components/query-editor/types'; // Import types
 import type { ComponentPublicInstance } from 'vue'; // Import ComponentPublicInstance
-import { type QueryCondition, parseAndTranslateLogchefQL, validateLogchefQLWithDetails } from '@/utils/logchefql/api';
+import { type QueryCondition, parseAndTranslateLogchefQL } from '@/utils/logchefql/api';
 import { QueryService } from '@/services/QueryService';
 import LogHistogram from '@/components/visualizations/LogHistogram.vue';
 
@@ -60,7 +60,8 @@ const teamsStore = useTeamsStore()
 const sourcesStore = useSourcesStore()
 const savedQueriesStore = useSavedQueriesStore()
 const { toast } = useToast()
-const { isInitializing, initializationError, initializeFromUrl, syncUrlFromState } = useExploreUrlSync();
+// Get pushQueryHistoryEntry along with other functions from useExploreUrlSync
+const { isInitializing, initializationError, initializeFromUrl, syncUrlFromState, pushQueryHistoryEntry } = useExploreUrlSync();
 
 // Composables
 const {
@@ -418,6 +419,11 @@ watch(isInitializing, async (initializing, prevInitializing) => {
         isLoadingQuery.value = false;
 
         if (fetchResult.success && savedQueriesStore.selectedQuery) {
+          // Check and reset groupByField if not already set in the query
+          if (!exploreStore.groupByField) {
+            exploreStore.setGroupByField('__none__');
+          }
+
           // 2. Pass the fetched query object to loadSavedQuery
           const loadResult = await loadSavedQuery(savedQueriesStore.selectedQuery);
 
@@ -456,9 +462,61 @@ watch(isInitializing, async (initializing, prevInitializing) => {
   }
 }, { immediate: false });
 
+// Function to reset/initialize queries when switching sources
+function resetQueriesForSourceChange() {
+  // Reset group-by selection to "No Grouping"
+  exploreStore.setGroupByField('__none__');
+
+  // Reset the query based on active mode
+  if (activeMode.value === 'logchefql') {
+    // In LogchefQL mode, just clear the query
+    exploreStore.setLogchefqlCode('');
+    logchefQuery.value = '';
+  } else {
+    // In SQL mode, set a default query using the current source table
+    if (sourcesStore.getCurrentSourceTableName) {
+      const tableName = sourcesStore.getCurrentSourceTableName;
+      const defaultSql = `SELECT * FROM \`${tableName}\`
+WHERE \`${sourceDetails.value?._meta_ts_field || 'timestamp'}\` BETWEEN toDateTime('${formatSqlDateTime(exploreStore.timeRange?.start)}', '${getLocalTimeZone()}')
+AND toDateTime('${formatSqlDateTime(exploreStore.timeRange?.end)}', '${getLocalTimeZone()}')
+LIMIT ${exploreStore.limit}`;
+
+      exploreStore.setRawSql(defaultSql);
+      sqlQuery.value = defaultSql;
+    } else {
+      // If no table name is available, just clear it
+      exploreStore.setRawSql('');
+      sqlQuery.value = '';
+    }
+  }
+
+  // Clear any errors
+  queryError.value = '';
+}
+
+// Helper function to format date for SQL
+function formatSqlDateTime(date: DateValue | undefined): string {
+  if (!date) {
+    // Default to current date minus 1 hour if no date provided
+    const now = new Date();
+    const oneHourAgo = new Date(now.getTime() - 3600000);
+    return oneHourAgo.toISOString().replace('T', ' ').substring(0, 19);
+  }
+
+  try {
+    const zonedDate = toCalendarDateTime(date);
+    const isoString = zonedDate.toString();
+    // Format as 'YYYY-MM-DD HH:MM:SS'
+    return isoString.replace('T', ' ').substring(0, 19);
+  } catch (e) {
+    console.error("Error formatting date for SQL:", e);
+    return new Date().toISOString().replace('T', ' ').substring(0, 19);
+  }
+}
+
 // Watch for source changes to fetch details AND saved queries
 watch(
-  () => currentSourceId.value, // Watch the computed property from useSourceTeamManagement
+  () => currentSourceId.value,
   async (newSourceId, oldSourceId) => {
     // Skip during initialization to prevent redundant calls
     if (isInitializing.value) {
@@ -466,6 +524,9 @@ watch(
     }
 
     if (newSourceId !== oldSourceId || (!oldSourceId && newSourceId)) {
+      // Reset queries when source changes
+      resetQueriesForSourceChange();
+
       // Fetch Source Details (existing logic)
       if (newSourceId && newSourceId > 0) {
         // Verify source existence (using teamSources from useSourceTeamManagement)
@@ -476,9 +537,9 @@ watch(
             if (currentSourceId.value === newSourceId) { // Check if still the same after timeout
               await sourcesStore.loadSourceDetails(newSourceId);
 
-              // If we're in SQL mode, ensure the table name is correct
+              // After loading source details, initialize SQL query if needed
               if (activeMode.value === 'sql' && sourcesStore.getCurrentSourceTableName) {
-                updateSqlTableReference(sourcesStore.getCurrentSourceTableName);
+                resetQueriesForSourceChange(); // Call again with updated source details
               }
             }
           }, 50);
@@ -501,7 +562,7 @@ watch(
 
 // Watch for changes in currentTeamId to update sources AND saved queries
 watch(
-  () => currentTeamId.value, // Watch the computed property from useSourceTeamManagement
+  () => currentTeamId.value,
   async (newTeamId, oldTeamId) => {
     // Skip during initialization
     if (isInitializing.value) {
@@ -509,6 +570,9 @@ watch(
     }
 
     if (newTeamId !== oldTeamId && newTeamId) {
+      // Reset queries when team changes
+      resetQueriesForSourceChange();
+
       // Load sources for the new team (existing logic)
       const sourcesResult = await sourcesStore.loadTeamSources(newTeamId);
       let newSourceIdToLoadQueries: number | null = null;
@@ -1094,6 +1158,23 @@ const insertExampleQuery = (sortKeys: string[] = []) => {
     });
   }
 };
+
+// Update the handler function for query execution to properly handle browser history
+const handleQueryExecution = async () => {
+  try {
+    // Execute the query
+    const result = await executeQuery();
+
+    // Only push a history entry if the query executed successfully
+    if (result && result.success) {
+      // This will create a new browser history entry with router.push
+      // and prevent the watcher from using router.replace
+      pushQueryHistoryEntry();
+    }
+  } catch (error) {
+    console.error("Error during query execution:", error);
+  }
+};
 </script>
 
 <template>
@@ -1311,7 +1392,7 @@ const insertExampleQuery = (sortKeys: string[] = []) => {
       <!-- Share Button -->
       <TooltipProvider>
         <Tooltip>
-          <TooltipTrigger as-child>
+          <TooltipTrigger asChild>
             <Button variant="outline" size="sm" class="h-8 ml-2" @click="copyUrlToClipboard">
               <Share2 class="h-4 w-4 mr-1.5" />
               Share
@@ -1352,16 +1433,18 @@ const insertExampleQuery = (sortKeys: string[] = []) => {
           <!-- Query Editor - only show when we have valid source and time range -->
           <template v-else-if="currentSourceId && hasValidSource && exploreStore.timeRange">
             <div class="bg-card shadow-sm rounded-md overflow-hidden">
-              <QueryEditor ref="queryEditorRef" :sourceId="currentSourceId" :teamId="currentTeamId ?? 0"
-                :schema="sourceDetails?.columns?.reduce((acc, col) => ({ ...acc, [col.name]: { type: col.type } }), {}) || {}"
+              <QueryEditor ref="queryEditorRef" :sourceId="currentSourceId" :teamId="currentTeamId ?? 0" :schema="sourceDetails?.columns?.reduce((acc: Record<string, { type: string }>, col: { name: string; type: string }) => {
+                acc[col.name] = { type: col.type };
+                return acc;
+              }, {} as Record<string, { type: string }>) || {}"
                 :activeMode="exploreStore.activeMode === 'logchefql' ? 'logchefql' : 'clickhouse-sql'"
-                :value="exploreStore.activeMode === 'logchefql' ? logchefQuery : sqlQuery" @change="(event) => event.mode === 'logchefql' ?
+                :value="exploreStore.activeMode === 'logchefql' ? logchefQuery : sqlQuery" @change="(event: EditorChangeEvent) => event.mode === 'logchefql' ?
                   updateLogchefqlValue(event.query, event.isUserInput) :
                   updateSqlValue(event.query, event.isUserInput)"
                 :placeholder="exploreStore.activeMode === 'logchefql' ? 'Enter search criteria (e.g., level=&quot;error&quot; and status>400)' : 'Enter SQL query...'"
                 :tsField="sourceDetails?._meta_ts_field || 'timestamp'" :tableName="activeSourceTableName"
-                :showFieldsPanel="showFieldsPanel" @submit="executeQuery"
-                @update:activeMode="(mode, isModeSwitchOnly) => changeMode(mode === 'logchefql' ? 'logchefql' : 'sql', isModeSwitchOnly)"
+                :showFieldsPanel="showFieldsPanel" @submit="handleQueryExecution"
+                @update:activeMode="(mode: EditorMode, isModeSwitchOnly?: boolean) => changeMode(mode === 'logchefql' ? 'logchefql' : 'sql', isModeSwitchOnly)"
                 @toggle-fields="showFieldsPanel = !showFieldsPanel" @select-saved-query="loadSavedQuery"
                 @save-query="handleSaveOrUpdateClick" class="border-0 border-b" />
 
@@ -1454,7 +1537,7 @@ const insertExampleQuery = (sortKeys: string[] = []) => {
               <Button variant="default" class="h-9 px-4 flex items-center gap-2 shadow-sm" :class="{
                 'bg-amber-500 hover:bg-amber-600 text-amber-foreground': isDirty && !isExecutingQuery,
                 'bg-primary hover:bg-primary/90 text-primary-foreground': isExecutingQuery
-              }" :disabled="isExecutingQuery || !canExecuteQuery" @click="executeQuery">
+              }" :disabled="isExecutingQuery || !canExecuteQuery" @click="handleQueryExecution">
                 <Play v-if="!isExecutingQuery" class="h-4 w-4" />
                 <RefreshCw v-else class="h-4 w-4 animate-spin" />
                 <span>{{ isDirty ? 'Run Query*' : 'Run Query' }}</span>
@@ -1532,23 +1615,22 @@ const insertExampleQuery = (sortKeys: string[] = []) => {
         <div class="flex-1 overflow-hidden flex flex-col border-t mt-2">
           <!-- Results Area -->
           <div class="flex-1 overflow-hidden relative bg-background">
-            <!-- Loading State -->
-            <template v-if="isExecutingQuery">
-              <div class="absolute inset-0 flex items-center justify-center bg-background/70 z-10">
-                <p class="text-muted-foreground animate-pulse">Loading results...</p>
-              </div>
-            </template>
-
-            <!-- Results Table -->
-            <template v-if="!isExecutingQuery && exploreStore.logs?.length">
-              <DataTable v-if="exploreStore.logs.length > 0 && exploreStore.columns?.length > 0"
+            <!-- Results Table (Render if logs exist OR if loading) -->
+            <template v-if="exploreStore.logs?.length > 0 || isExecutingQuery">
+              <!-- Render DataTable only if columns are available -->
+              <DataTable v-if="exploreStore.columns?.length > 0"
                 :key="`${exploreStore.sourceId}-${exploreStore.activeMode}-${exploreStore.queryId}`"
                 :columns="exploreStore.columns as any" :data="exploreStore.logs" :stats="exploreStore.queryStats"
-                :source-id="String(exploreStore.sourceId)" :team-id="teamsStore.currentTeamId"
-                :timestamp-field="sourcesStore.currentSourceDetails?._meta_ts_field"
+                :is-loading="isExecutingQuery" :source-id="String(exploreStore.sourceId)"
+                :team-id="teamsStore.currentTeamId" :timestamp-field="sourcesStore.currentSourceDetails?._meta_ts_field"
                 :severity-field="sourcesStore.currentSourceDetails?._meta_severity_field" :timezone="displayTimezone"
                 :query-fields="queryFields" :regex-highlights="regexHighlights" :active-mode="activeMode"
                 @drill-down="handleDrillDown" />
+              <!-- Show loading placeholder if loading but columns aren't ready -->
+              <div v-else-if="isExecutingQuery"
+                class="absolute inset-0 flex items-center justify-center bg-background/70 z-10">
+                <p class="text-muted-foreground animate-pulse">Loading results...</p>
+              </div>
             </template>
 
             <!-- No Results State -->
@@ -1590,7 +1672,7 @@ const insertExampleQuery = (sortKeys: string[] = []) => {
                 <p class="text-sm text-muted-foreground max-w-md mb-4">
                   Enter a query or use the default, then click 'Run' to see logs.
                 </p>
-                <Button variant="outline" size="sm" @click="executeQuery"
+                <Button variant="outline" size="sm" @click="handleQueryExecution"
                   class="border-primary/20 text-primary hover:bg-primary/5 hover:text-primary hover:border-primary/30">
                   <Play class="h-3.5 w-3.5 mr-1.5" />
                   Run default query

@@ -100,11 +100,16 @@ func (a *App) Initialize(ctx context.Context) error {
 			"table", source.Connection.TableName)
 		if err := a.ClickHouse.AddSource(source); err != nil {
 			// Log failure but continue initialization.
-			a.Logger.Warn("failed to initialize source connection",
+			// The health check system will attempt to recover these connections.
+			a.Logger.Warn("failed to initialize source connection, will attempt recovery via health checks",
 				"source_id", source.ID,
 				"error", err)
 		}
 	}
+
+	// Start background health checks for the ClickHouse manager.
+	// Use 0 to trigger the default interval defined in the manager.
+	a.ClickHouse.StartBackgroundHealthChecks(0)
 
 	// Initialize HTTP server.
 	serverOpts := server.ServerOptions{
@@ -146,6 +151,13 @@ func (a *App) Shutdown(ctx context.Context) error {
 		if err := a.server.Shutdown(ctx); err != nil {
 			a.Logger.Error("error shutting down server", "error", err)
 			// Continue shutdown even if server fails.
+		}
+	}
+
+	// Close ClickHouse manager (stops health checks and closes clients).
+	if a.ClickHouse != nil {
+		if err := a.ClickHouse.Close(); err != nil {
+			a.Logger.Error("error closing clickhouse manager", "error", err)
 		}
 	}
 

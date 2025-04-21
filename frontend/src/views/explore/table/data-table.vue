@@ -19,7 +19,7 @@ import {
 } from '@tanstack/vue-table'
 import { ref, computed, onMounted, watch } from 'vue'
 import { Button } from '@/components/ui/button'
-import { Search, GripVertical, Download, Copy, Timer, Rows4, Equal, EqualNot } from 'lucide-vue-next'
+import { Search, GripVertical, Download, Copy, Timer, Rows4, Equal, EqualNot, RefreshCw } from 'lucide-vue-next' // Added RefreshCw
 import { valueUpdater, getSeverityClasses } from '@/lib/utils'
 import { Input } from '@/components/ui/input'
 import DataTableColumnSelector from './data-table-column-selector.vue'
@@ -54,6 +54,7 @@ interface Props {
     queryFields?: string[] // Fields used in the query for column indicators
     regexHighlights?: Record<string, { pattern: string, isNegated: boolean }> // Column-specific regex patterns
     activeMode?: 'logchefql' | 'clickhouse-sql' | 'sql' // Current query mode
+    isLoading?: boolean // Prop to indicate loading state
 }
 
 // Define the structure for storing state
@@ -69,7 +70,8 @@ const props = withDefaults(defineProps<Props>(), {
     timezone: 'local',
     queryFields: () => [],
     regexHighlights: () => ({}),
-    activeMode: 'logchefql'
+    activeMode: 'logchefql',
+    isLoading: false // Default isLoading to false
 })
 
 // Get the actual field names to use with fallbacks
@@ -590,19 +592,22 @@ const handleDrillDown = (columnName: string, value: any, operator: string = '=')
 
         <!-- Results Header with Controls and Pagination -->
         <div class="flex items-center justify-between p-2 border-b flex-shrink-0">
-            <!-- Left side - Query stats -->
+            <!-- Left side - Query stats & Loading Indicator -->
             <div class="flex items-center gap-3 text-sm text-muted-foreground">
-                <span v-if="stats && stats.execution_time_ms !== undefined" class="inline-flex items-center">
+                <!-- Loading Spinner -->
+                <RefreshCw v-if="props.isLoading" class="h-4 w-4 text-primary animate-spin" />
+                <!-- Query Stats -->
+                <span v-if="!props.isLoading && stats && stats.execution_time_ms !== undefined" class="inline-flex items-center">
                     <Timer class="h-3.5 w-3.5 mr-1.5 text-muted-foreground/80" />
                     Query time:
-                    <span class="ml-1 font-medium text-foreground/90">{{ formatExecutionTime(stats.execution_time_ms)
-                    }}</span>
+                    <span class="ml-1 font-medium text-foreground/90">{{ formatExecutionTime(stats.execution_time_ms) }}</span>
                 </span>
-                <span v-if="stats && stats.rows_read !== undefined" class="inline-flex items-center">
+                <span v-if="!props.isLoading && stats && stats.rows_read !== undefined" class="inline-flex items-center">
                     <Rows4 class="h-3.5 w-3.5 mr-1.5 text-muted-foreground/80" />
                     Rows:
                     <span class="ml-1 font-medium text-foreground/90">{{ stats.rows_read.toLocaleString() }}</span>
                 </span>
+                <span v-if="props.isLoading" class="text-primary animate-pulse">Loading...</span>
             </div>
 
             <!-- Right side controls with pagination moved to top -->
@@ -674,11 +679,12 @@ const handleDrillDown = (columnName: string, value: any, operator: string = '=')
         </div>
 
         <!-- Table Section with full-height scrolling -->
-        <div class="flex-1 relative overflow-hidden" ref="tableContainerRef">
+        <div class="flex-1 relative overflow-hidden" ref="tableContainerRef"
+             :class="{ 'opacity-60 pointer-events-none': props.isLoading }"> <!-- Dim table during load -->
             <!-- Add v-if="table" here -->
             <div v-if="table && table.getRowModel().rows?.length" class="absolute inset-0">
                 <div
-                    class="w-full h-full overflow-auto scrollbar-thin scrollbar-thumb-gray-400/50 scrollbar-track-transparent">
+                    class="w-full h-full overflow-auto scrollbar-thin scrollbar-thumb-gray-400/50 scrollbar-track-transparent transition-opacity duration-150">
                     <table ref="tableRef" class="table-fixed border-separate border-spacing-0 text-sm shadow-sm"
                         :data-resizing="isResizing">
                         <thead class="sticky top-0 z-10 bg-card border-b shadow-sm">
@@ -931,28 +937,42 @@ const handleDrillDown = (columnName: string, value: any, operator: string = '=')
     /* Ensure hover appears above other rows */
 }
 
-/* Ensure proper rendering inside table cells - single line with no wrapping */
+/* Rendering for table cells - show full text by default, add ellipsis only on hover */
 td>.flex>.whitespace-pre {
     white-space: pre !important;
     /* Prevent wrapping */
     overflow: hidden !important;
     /* Hide overflow within the cell's inner div */
-    text-overflow: ellipsis !important;
-    /* Add ellipsis for hidden text */
+    text-overflow: clip !important;
+    /* Default to clip overflow (no ellipsis) */
+    transition: text-overflow 0.2s ease;
 }
 
-/* Ensure JSON objects don't wrap in table cells */
+/* Add ellipsis only when cell is hovered (to make space for action buttons) */
+.cell-hover-target:hover .whitespace-pre {
+    text-overflow: ellipsis !important;
+    /* Add ellipsis for hidden text on hover */
+}
+
+/* Handling for JSON objects in table cells */
 :deep(.json-content) {
     white-space: nowrap !important;
     /* Prevent wrapping for JSON content */
     overflow: hidden !important;
     /* Hide overflow */
-    text-overflow: ellipsis !important;
-    /* Add ellipsis for hidden text */
+    text-overflow: clip !important;
+    /* Default to clip overflow (no ellipsis) */
     display: inline-block !important;
     /* Keep it as inline block */
     max-width: 100% !important;
     /* Limit width to cell size */
+    transition: text-overflow 0.2s ease;
+}
+
+/* Add ellipsis for JSON content only on hover */
+.cell-hover-target:hover :deep(.json-content) {
+    text-overflow: ellipsis !important;
+    /* Add ellipsis for hidden text on hover */
 }
 
 /* Add cursor styling for drag handle */

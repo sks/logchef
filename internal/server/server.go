@@ -12,6 +12,7 @@ import (
 	"github.com/mr-karan/logchef/internal/sqlite"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/compress"
 	"github.com/gofiber/fiber/v2/middleware/filesystem"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/swagger" // Swagger handler
@@ -85,6 +86,9 @@ func New(opts ServerOptions) *Server {
 
 	// Add essential middleware.
 	app.Use(recover.New()) // Recover from panics.
+	app.Use(compress.New(compress.Config{
+		Level: compress.LevelBestSpeed, // Prioritize speed over maximum compression
+	})) // Compress responses
 
 	// Create the Server instance, injecting dependencies.
 	s := &Server{

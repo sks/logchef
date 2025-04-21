@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mr-karan/logchef/pkg/models"
@@ -20,7 +21,9 @@ import (
 type Client struct {
 	conn       driver.Conn // Underlying ClickHouse native connection.
 	logger     *slog.Logger
-	queryHooks []QueryHook // Hooks to execute before/after queries.
+	queryHooks []QueryHook         // Hooks to execute before/after queries.
+	mu         sync.Mutex          // Protects shared resources within the client if any
+	opts       *clickhouse.Options // Stores connection options for reconnection
 }
 
 // ClientOptions holds configuration for establishing a new ClickHouse client connection.
@@ -57,7 +60,8 @@ type TableInfo struct {
 }
 
 // NewClient establishes a new connection to a ClickHouse server using the native protocol.
-// It takes connection options and a logger, tests the connection, and returns a Client instance.
+// It takes connection options and a logger, creates the connection, and returns a Client instance.
+// Note: This does not automatically verify the connection with a ping - callers should do that if needed.
 func NewClient(opts ClientOptions, logger *slog.Logger) (*Client, error) {
 	// Ensure host includes the native protocol port (default 9000) if not specified.
 	host := opts.Host
@@ -101,19 +105,11 @@ func NewClient(opts ClientOptions, logger *slog.Logger) (*Client, error) {
 		return nil, fmt.Errorf("creating clickhouse connection: %w", err)
 	}
 
-	// Verify the connection is active by pinging the server.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := conn.Ping(ctx); err != nil {
-		// Attempt to close the potentially problematic connection before returning error.
-		_ = conn.Close()
-		return nil, fmt.Errorf("pinging clickhouse failed: %w", err)
-	}
-
 	client := &Client{
 		conn:       conn,
 		logger:     logger,
 		queryHooks: []QueryHook{}, // Initialize hooks slice.
+		opts:       options,
 	}
 
 	// Apply a default hook for basic query logging.
@@ -284,11 +280,41 @@ func (c *Client) Close() error {
 	return c.conn.Close()
 }
 
-// GetTableSchema retrieves comprehensive schema information for a ClickHouse table.
-// This is an alias for GetTableInfo.
-func (c *Client) GetTableSchema(ctx context.Context, database, table string) (*TableInfo, error) {
-	return c.GetTableInfo(ctx, database, table)
+// Reconnect attempts to re-establish the connection to the ClickHouse server.
+// This is useful for recovering from connection failures during health checks.
+func (c *Client) Reconnect(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Only attempt reconnect if connection exists but is failing
+	if c.conn != nil {
+		// Try to close the existing connection first
+		_ = c.conn.Close() // Ignore close errors
+	}
+
+	// Use stored connection options
+	if c.opts == nil {
+		return fmt.Errorf("missing connection options for reconnect")
+	}
+
+	// Create a new connection with the same settings
+	newConn, err := clickhouse.Open(c.opts)
+	if err != nil {
+		return fmt.Errorf("reconnecting to clickhouse: %w", err)
+	}
+
+	// Test the new connection
+	if err := newConn.Ping(ctx); err != nil {
+		_ = newConn.Close() // Clean up failed connection
+		return fmt.Errorf("ping after reconnect failed: %w", err)
+	}
+
+	// Replace the connection
+	c.conn = newConn
+	c.logger.Info("successfully reconnected to clickhouse")
+	return nil
 }
+
 
 // GetTableInfo retrieves detailed metadata about a table, including handling
 // for Distributed tables by inspecting the underlying local table.
@@ -670,4 +696,19 @@ func isKeyword(s string) bool {
 		// "now": true, "today": true,
 	}
 	return keywords[lowerS]
+}
+
+// Ping checks the connectivity to the ClickHouse server.
+// It sends a PING request and waits for a PONG response.
+func (c *Client) Ping(ctx context.Context) error {
+	if c.conn == nil {
+		return fmt.Errorf("clickhouse client connection is nil")
+	}
+	// Use the underlying driver connection's Ping method
+	if err := c.conn.Ping(ctx); err != nil {
+		// Log the specific ping error for debugging
+		c.logger.Debug("clickhouse ping failed", "error", err)
+		return fmt.Errorf("clickhouse ping failed: %w", err)
+	}
+	return nil
 }

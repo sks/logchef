@@ -1,8 +1,46 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, watch, computed, nextTick } from 'vue';
+import { useColorMode } from '@vueuse/core';
 const isMounted = ref(true);
 import { toCalendarDateTime, CalendarDateTime } from '@internationalized/date';
-import * as echarts from 'echarts';
+// Tree-shaking echarts imports
+import { init, use, registerTheme } from 'echarts/core'; // Import registerTheme
+import type { ECharts } from 'echarts/core';
+import { BarChart } from 'echarts/charts';
+import {
+    TitleComponent,
+    TooltipComponent,
+    GridComponent,
+    DataZoomComponent,
+    ToolboxComponent,
+    LegendComponent
+} from 'echarts/components';
+import { CanvasRenderer } from 'echarts/renderers';
+
+// Register necessary components
+use([
+    BarChart,
+    TitleComponent,
+    TooltipComponent,
+    GridComponent,
+    DataZoomComponent,
+    ToolboxComponent,
+    LegendComponent,
+    CanvasRenderer
+]);
+
+// Import the dark theme
+import { logchefDarkTheme } from '@/utils/echarts-theme-dark';
+
+// Register the dark theme only once
+let themeRegistered = false;
+if (!themeRegistered) {
+    registerTheme('logchef-dark', logchefDarkTheme);
+    themeRegistered = true;
+    console.log("LogChef dark theme registered for ECharts.");
+}
+
+
 import { debounce } from 'lodash-es';
 import { useExploreStore } from '@/stores/explore';
 import { useSourcesStore } from '@/stores/sources';
@@ -36,12 +74,13 @@ const emit = defineEmits<{
 
 // Component state
 const chartRef = ref<HTMLElement | null>(null);
-let chart: echarts.ECharts | null = null;
+let chart: ECharts | null = null;
 const histogramData = ref<HistogramData[]>([]);
 const isChartLoading = ref(false);
 const initialDataLoaded = ref(false);
 const lastProcessedTimestamp = ref<number | null>(null);
 const currentGroupBy = ref<string>('');
+const currentGranularity = ref<string>(''); // Store the granularity used
 
 // Access stores
 const exploreStore = useExploreStore();
@@ -55,6 +94,9 @@ const {
     activeMode,
     prepareQueryForExecution
 } = useQuery();
+
+// Theme state
+const colorMode = useColorMode(); // Gets the resolved mode ('light' or 'dark')
 
 // Computed properties
 const hasValidSource = computed(() => sourcesStore.hasValidCurrentSource);
@@ -71,30 +113,31 @@ const windowResizeEventCallback = debounce(async () => {
     }
 }, 100);
 
-// Color palette for grouped data - Expanded palette with carefully selected colors
-// that maintain good contrast in both light and dark modes
+// Revised color palette for a more professional/dev-tool look
 const colorPalette = [
-    '#4a90e2',  // Blue
-    '#e74c3c',  // Red
-    '#2ecc71',  // Green
-    '#f39c12',  // Orange
-    '#9b59b6',  // Purple
-    '#1abc9c',  // Turquoise
-    '#d35400',  // Dark Orange
-    '#3498db',  // Light Blue
-    '#e67e22',  // Carrot
-    '#7f8c8d',  // Gray
-    '#16a085',  // Green Sea
-    '#8e44ad',  // Wisteria
-    '#27ae60',  // Nephritis
-    '#d64541',  // Pomegranate
-    '#f1c40f',  // Sunflower
-    '#34495e',  // Wet Asphalt
-    '#2980b9',  // Belize Hole
-    '#c0392b',  // Brick Red
-    '#5499c7',  // Steel Blue
-    '#6c7a89'   // Lynch
+    '#5470C6', // Blue
+    '#EE6666', // Red
+    '#FAC858', // Yellow
+    '#91CC75', // Green
+    '#73C0DE', // Light Blue
+    '#FC8452', // Orange
+    '#9A60B4', // Purple
+    '#ea7ccc', // Pink (more muted)
+    // Extended colors if needed
+    '#3BA272', // Darker Green
+    '#27727B', // Teal Blue
+    '#E062AE', // Magenta
+    '#FFB980', // Light Orange
+    '#5D9B9B', // Grayish Cyan
+    '#D48265', // Brownish Orange
+    '#C6E579', // Lime Green (more muted)
+    '#F4E001', // Bright Yellow (use sparingly)
+    '#B5C334', // Olive Green
+    '#6E7074', // Gray
+    '#8378EA', // Lavender
+    '#7A455D'  // Maroon
 ];
+
 
 // Convert the histogram data to chart options with Kibana-like styling
 const convertHistogramData = (buckets: HistogramData[]) => {
@@ -106,7 +149,6 @@ const convertHistogramData = (buckets: HistogramData[]) => {
                 textStyle: {
                     fontSize: 14,
                     fontWeight: '500',
-                    color: 'hsl(var(--foreground))'
                 }
             },
             backgroundColor: 'transparent',
@@ -124,12 +166,12 @@ const convertHistogramData = (buckets: HistogramData[]) => {
                 splitLine: { show: false },
                 axisLine: {
                     lineStyle: {
-                        color: 'hsl(var(--border))'
+                        color: colorMode.value === 'dark' ? '#71708A' : 'hsl(var(--border))'
                     }
                 },
                 axisTick: {
                     lineStyle: {
-                        color: 'hsl(var(--border))'
+                        color: colorMode.value === 'dark' ? '#71708A' : 'hsl(var(--border))'
                     }
                 }
             },
@@ -140,13 +182,12 @@ const convertHistogramData = (buckets: HistogramData[]) => {
                     show: true,
                     lineStyle: {
                         type: 'dashed',
-                        color: 'hsl(var(--border))',
+                        color: colorMode.value === 'dark' ? 'rgba(120, 120, 140, 0.3)' : 'hsl(var(--border))',
                         opacity: 0.5
                     }
                 },
                 axisTick: { show: false },
                 axisLabel: {
-                    color: 'hsl(var(--muted-foreground))',
                     fontSize: 11
                 }
             },
@@ -154,7 +195,7 @@ const convertHistogramData = (buckets: HistogramData[]) => {
                 type: 'bar',
                 data: [],
                 itemStyle: {
-                    color: '#4a90e2' // A pleasant, Kibana-like blue for log analytics
+                    color: '#5794F2'
                 }
             }]
         };
@@ -168,6 +209,41 @@ const convertHistogramData = (buckets: HistogramData[]) => {
     const timestamps: number[] = []; // Store actual timestamps for calculation
     let seriesData: any[] = [];
 
+    // --- Determine Optimal Date/Time Format ---
+    // Default: HH:MM in 24-hour format
+    let timeFormatOptions: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit', hour12: false };
+    const showSeconds = currentGranularity.value.endsWith('s');
+    if (showSeconds) {
+        timeFormatOptions.second = '2-digit'; // Add seconds if granularity requires it (still 24-hour)
+    }
+
+    if (buckets.length > 0) {
+        const firstTimestamp = new Date(buckets[0].bucket).getTime();
+        const lastTimestamp = new Date(buckets[buckets.length - 1].bucket).getTime();
+        const spanMs = lastTimestamp - firstTimestamp;
+        const spanHours = spanMs / (1000 * 60 * 60);
+
+        const firstDate = new Date(firstTimestamp);
+        const lastDate = new Date(lastTimestamp);
+        const isSameDay = firstDate.toDateString() === lastDate.toDateString();
+
+        // If span is >= 24 hours OR data spans multiple days, include the date
+        if (spanHours >= 24 || !isSameDay) {
+            timeFormatOptions = {
+                month: 'numeric', // MM
+                day: 'numeric',   // DD
+                ...timeFormatOptions // Include HH:MM or HH:MM:SS
+            };
+            // Optional: Add year if span is very large (e.g., > 365 days)
+            // const spanDays = spanHours / 24;
+            // if (spanDays > 365) {
+            //     timeFormatOptions.year = 'numeric';
+            // }
+        }
+    }
+    // --- End Determine Format ---
+
+
     if (isGrouped) {
         // Group data by bucket and group_value
         const groupedByBucket: Record<string, Record<string, number>> = {};
@@ -175,10 +251,11 @@ const convertHistogramData = (buckets: HistogramData[]) => {
 
         buckets.forEach(item => {
             const date = new Date(item.bucket);
-            const bucketKey = date.toISOString();
+            const bucketKey = date.toISOString(); // Use ISO string as key for consistency
             if (!groupedByBucket[bucketKey]) {
                 groupedByBucket[bucketKey] = {};
-                categoryData.push(`${date.toLocaleDateString()} ${date.toLocaleTimeString()}`);
+                // Use the determined intelligent format
+                categoryData.push(date.toLocaleString([], timeFormatOptions));
                 timestamps.push(date.getTime());
             }
             const groupVal = item.group_value || 'Other';
@@ -220,8 +297,8 @@ const convertHistogramData = (buckets: HistogramData[]) => {
         buckets.forEach(item => {
             const date = new Date(item.bucket);
             timestamps.push(date.getTime());
-            const formatDate = `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
-            categoryData.push(formatDate);
+            // Use the determined intelligent format
+            categoryData.push(date.toLocaleString([], timeFormatOptions));
             valueData.push(item.log_count);
         });
 
@@ -233,8 +310,9 @@ const convertHistogramData = (buckets: HistogramData[]) => {
             const oneMinBefore = new Date(date.getTime() - 60000);
             const oneMinAfter = new Date(date.getTime() + 60000);
 
-            categoryData.unshift(`${oneMinBefore.toLocaleDateString()} ${oneMinBefore.toLocaleTimeString()}`);
-            categoryData.push(`${oneMinAfter.toLocaleDateString()} ${oneMinAfter.toLocaleTimeString()}`);
+            // Format added points consistently using the determined format
+            categoryData.unshift(oneMinBefore.toLocaleString([], timeFormatOptions));
+            categoryData.push(oneMinAfter.toLocaleString([], timeFormatOptions));
 
             valueData.unshift(0);
             valueData.push(0);
@@ -252,13 +330,13 @@ const convertHistogramData = (buckets: HistogramData[]) => {
             large: true,
             largeThreshold: 100,
             itemStyle: {
-                color: '#4a90e2', // A pleasant, Kibana-like blue for log analytics
+                color: '#5794F2', // Professional-style blue for log analytics
                 borderRadius: [2, 2, 0, 0],
                 opacity: 0.85
             },
             emphasis: {
                 itemStyle: {
-                    color: '#357abd', // Slightly darker blue for hover/selection
+                    color: '#44A2F3', // Slightly darker blue for hover/selection
                     opacity: 1,
                     shadowBlur: 4,
                     shadowColor: 'rgba(0, 0, 0, 0.2)'
@@ -269,13 +347,13 @@ const convertHistogramData = (buckets: HistogramData[]) => {
 
     return {
         title: {
-            text: `${buckets.length.toLocaleString()} Log Records`,
-            left: 'center',
-            textStyle: {
-                fontSize: 14,
-                fontWeight: '500',
-                color: 'hsl(var(--foreground))'
-            }
+            show: false, // Hide the title
+            // text: `${buckets.length.toLocaleString()} Log Records`,
+            // left: 'center',
+            // textStyle: {
+            //     fontSize: 14,
+            //     fontWeight: '500',
+            // }
         },
         backgroundColor: 'transparent',
         grid: {
@@ -288,13 +366,54 @@ const convertHistogramData = (buckets: HistogramData[]) => {
         tooltip: {
             show: true,
             trigger: 'axis',
-            backgroundColor: 'hsl(var(--popover))',
-            borderColor: 'hsl(var(--border))',
+            confine: false,
+            z: 60,
+            position: function (point: any, params: any, dom: any, rect: any, size: any) {
+                // Position the tooltip slightly below the cursor
+                // point[0] is x, point[1] is y coordinate of the mouse
+                const x = point[0];
+                const y = point[1];
+                const viewWidth = size.viewSize[0];
+                const viewHeight = size.viewSize[1];
+                const boxWidth = size.contentSize[0];
+                const boxHeight = size.contentSize[1];
+                let posX = 0;
+                let posY = 0;
+
+                // Calculate horizontal position
+                if (x + boxWidth > viewWidth) {
+                    // If tooltip overflows right, position it to the left of the cursor
+                    posX = x - boxWidth - 10; // 10px offset
+                } else {
+                    // Otherwise, position it to the right of the cursor
+                    posX = x + 15; // 15px offset
+                }
+
+                // Calculate vertical position - always below the cursor
+                posY = y + 20; // 20px offset below cursor
+
+                // Prevent tooltip from going off the bottom edge
+                if (posY + boxHeight > viewHeight) {
+                    posY = y - boxHeight - 10; // Position above cursor if it overflows bottom
+                }
+                // Prevent tooltip from going off the top edge (if positioned above)
+                if (posY < 0) {
+                    posY = 5; // Small offset from top edge
+                }
+                // Prevent tooltip from going off the left edge (if positioned left)
+                if (posX < 0) {
+                    posX = 5; // Small offset from left edge
+                }
+
+                return [posX, posY];
+            },
+            backgroundColor: colorMode.value === 'dark' ? '#1c1c25' : 'hsl(var(--popover))',
+            borderColor: colorMode.value === 'dark' ? '#302f3d' : 'hsl(var(--border))',
             borderWidth: 1,
             padding: 10,
             textStyle: {
                 fontSize: 12,
-                color: 'hsl(var(--popover-foreground))'
+                color: colorMode.value === 'dark' ? '#FFFFFF' : 'hsl(var(--popover-foreground))'
             },
             axisPointer: {
                 type: 'shadow',
@@ -310,7 +429,9 @@ const convertHistogramData = (buckets: HistogramData[]) => {
                 // Add bounds checking for data arrays
                 if (index < 0 || index >= categoryData.length) return '';
 
-                const timeStr = categoryData[index];
+                // Use the pre-formatted time string directly from categoryData
+                const displayTimeStr = categoryData[index];
+
                 let total = 0;
                 const details = params.map((p: any) => {
                     const value = p.data || 0;
@@ -322,7 +443,7 @@ const convertHistogramData = (buckets: HistogramData[]) => {
                 }).join('');
 
                 return `<div style="font-size: 12px;">
-                    <div style="font-weight: 500; margin-bottom: 4px;">${timeStr}</div>
+                    <div style="font-weight: 500; margin-bottom: 4px;">${displayTimeStr}</div>
                     <div style="margin-bottom: 4px;">Total: <strong>${total.toLocaleString()}</strong></div>
                     ${details}
                 </div>`;
@@ -332,7 +453,6 @@ const convertHistogramData = (buckets: HistogramData[]) => {
             show: true,
             bottom: 0,
             textStyle: {
-                color: 'hsl(var(--foreground))',
                 fontSize: 11
             }
         } : {
@@ -345,30 +465,24 @@ const convertHistogramData = (buckets: HistogramData[]) => {
             axisLabel: {
                 interval: function (index: number) {
                     // Show fewer labels when there are many data points
+                    // Show fewer labels when there are many data points to avoid overlap
+                    // Adjust the divisor (e.g., 15) based on desired density
                     return index % Math.max(Math.ceil(categoryData.length / 15), 1) === 0;
                 },
                 formatter: function (value: string) {
-                    // Show date and time in a compact format
-                    const parts = value.split(' ');
-                    if (parts.length >= 2) {
-                        return `${parts[0].split('/')[0]}/${parts[0].split('/')[1]} ${parts[1].substring(0, 5)}`;
-                    }
+                    // Value is already pre-formatted intelligently
                     return value;
                 },
                 fontSize: 11,
-                color: 'hsl(var(--muted-foreground))',
                 margin: 10
             },
             axisLine: {
                 lineStyle: {
-                    color: 'hsl(var(--border))'
+                    color: colorMode.value === 'dark' ? '#71708A' : 'hsl(var(--border))'
                 }
             },
             axisTick: {
                 alignWithLabel: true,
-                lineStyle: {
-                    color: 'hsl(var(--border))'
-                }
             },
             splitLine: { show: false }
         },
@@ -383,7 +497,7 @@ const convertHistogramData = (buckets: HistogramData[]) => {
                 show: true,
                 lineStyle: {
                     type: 'dashed',
-                    color: 'hsl(var(--border))',
+                    color: colorMode.value === 'dark' ? 'rgba(120, 120, 140, 0.3)' : 'hsl(var(--border))',
                     opacity: 0.5
                 }
             },
@@ -399,47 +513,34 @@ const convertHistogramData = (buckets: HistogramData[]) => {
                         return (Math.round(value / 100000000) / 10).toLocaleString() + 'B';
                     }
                 },
-                color: 'hsl(var(--muted-foreground))',
                 fontSize: 11,
                 margin: 12
             }
         },
         toolbox: {
             orient: 'horizontal',
-            show: true,
-            showTitle: true,
-            itemSize: 14,
+            show: true, // Keep toolbox visible for functionality
+            showTitle: false, // Hide titles
+            itemSize: 1, // Make icons tiny
             right: 15,
             top: 5,
             feature: {
                 dataZoom: {
-                    show: true,
+                    show: true, // Keep feature enabled
+                    showTitle: false, // Hide titles
                     yAxisIndex: 'none',
-                    title: {
-                        zoom: 'Area Zoom',
-                        back: 'Reset Zoom'
+                    icon: {
+                        zoom: 'path://', // Empty path to hide icon but keep functionality
+                        back: 'path://'  // Empty path to hide icon but keep functionality
                     },
                     iconStyle: {
-                        borderColor: 'hsl(var(--muted-foreground))',
-                        borderWidth: 1
+                        borderWidth: 0, // Hide border
+                        opacity: 0 // Make completely transparent
                     },
                     emphasis: {
                         iconStyle: {
-                            borderColor: 'hsl(var(--primary))'
-                        }
-                    }
-                },
-                saveAsImage: {
-                    show: true,
-                    title: 'Save',
-                    pixelRatio: 2,
-                    iconStyle: {
-                        borderColor: 'hsl(var(--muted-foreground))',
-                        borderWidth: 1
-                    },
-                    emphasis: {
-                        iconStyle: {
-                            borderColor: 'hsl(var(--primary))'
+                            borderWidth: 0,
+                            opacity: 0
                         }
                     }
                 }
@@ -447,13 +548,40 @@ const convertHistogramData = (buckets: HistogramData[]) => {
         },
         dataZoom: [
             {
-                type: 'inside',
+                type: 'inside', // For mouse wheel/drag zooming INSIDE the chart area
                 xAxisIndex: 0,
                 start: 0,
                 end: 100,
                 zoomOnMouseWheel: true,
                 moveOnMouseMove: true,
                 moveOnMouseWheel: true
+            },
+            {
+                type: 'slider', // The visual slider component (often at the bottom)
+                show: false, // Hide the slider component
+                xAxisIndex: 0,
+                start: 0,
+                end: 100,
+                // Add brushStyle for better selection visibility
+                brushStyle: {
+                    borderWidth: 1,
+                    borderColor: colorMode.value === 'dark' ? '#6871F1' : 'hsl(var(--primary))',
+                    color: colorMode.value === 'dark' ? 'rgba(104, 113, 241, 0.2)' : 'hsla(var(--primary-hsl) / 0.2)',
+                },
+                height: 15, // Adjust height if needed
+                bottom: 5, // Adjust position if needed
+            },
+            { // This corresponds to the toolbox dataZoom feature (area selection)
+                type: 'select', // This enables the brush selection via the toolbox button
+                xAxisIndex: 0,
+                brushMode: 'single',
+                brushStyle: {
+                    borderWidth: 1,
+                    borderColor: colorMode.value === 'dark' ? '#6871F1' : 'hsl(var(--primary))',
+                    color: colorMode.value === 'dark' ? 'rgba(104, 113, 241, 0.2)' : 'hsla(var(--primary-hsl) / 0.2)',
+                },
+                transformable: true,
+                throttle: 100
             }
         ],
         series: seriesData,
@@ -512,9 +640,11 @@ const fetchHistogramData = async (forceGranularity?: string) => {
 
         if (response.success && response.data) {
             histogramData.value = response.data.data || [];
+            currentGranularity.value = response.data.granularity || ''; // Store granularity
             initialDataLoaded.value = true;
         } else {
             histogramData.value = [];
+            currentGranularity.value = ''; // Reset on failure
         }
 
     } catch (error) {
@@ -531,7 +661,7 @@ const restoreChart = () => {
         type: "restore"
     });
 
-    // Set toolbox datazoom button state
+    // Set toolbox datazoom button state similar to reference code
     chart?.dispatchAction({
         type: "takeGlobalCursor",
         key: "dataZoomSelect",
@@ -562,6 +692,13 @@ const setupChartEvents = () => {
             // For direct toolbox dataZoom
             handleZoomAction(params);
         }
+
+        // Always ensure the dataZoom selection mode is active after a zoom operation
+        chart?.dispatchAction({
+            type: "takeGlobalCursor",
+            key: "dataZoomSelect",
+            dataZoomSelectActive: true
+        });
     }));
 
     // Restore event
@@ -580,9 +717,40 @@ const setupChartEvents = () => {
 
                 // No need to emit update:timeRange here since we're restoring to the original timeRange
             }
+
+            // Ensure dataZoom selection mode is active after restore
+            chart?.dispatchAction({
+                type: "takeGlobalCursor",
+                key: "dataZoomSelect",
+                dataZoomSelectActive: true
+            });
         } catch (e) {
             console.error('Error handling restore event:', e);
         }
+    }));
+
+    // Add a handler for brush selection
+    chart.on('brush', safeHandler(() => {
+        // Make sure dataZoom tool is reselected after brush operation
+        nextTick(() => {
+            chart?.dispatchAction({
+                type: "takeGlobalCursor",
+                key: "dataZoomSelect",
+                dataZoomSelectActive: true
+            });
+        });
+    }));
+
+    // Add a handler for brush end (when selection is complete)
+    chart.on('brushend', safeHandler(() => {
+        // Ensure dataZoom selection mode is active after brush end
+        nextTick(() => {
+            chart?.dispatchAction({
+                type: "takeGlobalCursor",
+                key: "dataZoomSelect",
+                dataZoomSelectActive: true
+            });
+        });
     }));
 
     // Handle window resize
@@ -602,8 +770,10 @@ const initChart = async () => {
             chart.dispose();
         }
 
-        // Create chart instance
-        chart = echarts.init(chartRef.value);
+        // Create chart instance with the current theme name
+        const themeName = colorMode.value === 'dark' ? 'logchef-dark' : '';
+        console.log(`Initializing chart with theme: ${colorMode.value === 'dark' ? 'logchef-dark' : 'default'}`);
+        chart = init(chartRef.value, themeName);
 
         // Set initial options
         updateChartOptions();
@@ -613,6 +783,13 @@ const initChart = async () => {
 
         // Ensure the dataZoom button is active
         restoreChart();
+
+        // Explicitly set dataZoom to be active on initialization
+        chart.dispatchAction({
+            type: "takeGlobalCursor",
+            key: "dataZoomSelect",
+            dataZoomSelectActive: true
+        });
     } catch (e) {
         console.error('Error initializing chart:', e);
     }
@@ -625,6 +802,24 @@ const updateChartOptions = () => {
     try {
         // Get options based on data
         const options = convertHistogramData(histogramData.value);
+
+        // Add axis overrides for proper dark mode display
+        if (colorMode.value === 'dark') {
+            // Ensure Y axis line is hidden
+            options.yAxis.axisLine = { show: false };
+            options.yAxis.axisTick = { show: false };
+            // Ensure X axis grid lines are hidden
+            options.xAxis.splitLine = { show: false };
+            // Ensure Y axis grid lines are visible with proper style
+            options.yAxis.splitLine = {
+                show: true,
+                lineStyle: {
+                    type: 'dashed',
+                    color: 'rgba(120, 120, 140, 0.3)',
+                    opacity: 0.5
+                }
+            };
+        }
 
         // Set options
         chart.setOption(options, true);
@@ -730,6 +925,26 @@ watch(
     },
     { deep: true }
 );
+
+// Watch for theme changes to re-initialize the chart
+watch(colorMode, async (newMode, oldMode) => {
+    // Add more detailed logging
+    console.log(`Theme watcher triggered: newMode='${newMode}', oldMode='${oldMode}', isMounted=${isMounted.value}`);
+
+    if (newMode !== oldMode && chartRef.value && isMounted.value) {
+        console.log(`Actual theme change detected (${oldMode} -> ${newMode}), re-initializing chart.`);
+        // Dispose existing chart and re-initialize with the new theme
+        await initChart();
+        // Re-fetch data if needed, or rely on existing data update logic
+        // If data doesn't need re-fetching, ensure options are applied
+        if (histogramData.value.length > 0) {
+            updateChartOptions();
+        } else if (hasValidSource.value && exploreStore.lastExecutionTimestamp) {
+            // If no data, trigger a fetch if appropriate
+            debouncedFetchHistogramData();
+        }
+    }
+});
 
 // Watch for height changes to resize chart
 watch(() => props.height, async () => {
@@ -931,6 +1146,28 @@ function handleZoomAction(zoomParams: any) {
         }
     }
 }
+
+// Add a function to activate zoom functionality after any component change
+const activateZoomFunctionality = () => {
+    if (!chart) return;
+
+    // Set dataZoom to be active
+    chart.dispatchAction({
+        type: "takeGlobalCursor",
+        key: "dataZoomSelect",
+        dataZoomSelectActive: true
+    });
+};
+
+// Call this function after any major update that might affect the chart
+watch(
+    () => histogramData.value,
+    () => {
+        nextTick(() => {
+            activateZoomFunctionality();
+        });
+    }
+);
 
 // Component lifecycle
 onMounted(async () => {

@@ -27,10 +27,6 @@ default:
 # Build both backend and frontend
 build: build-ui build-backend
 
-# Generate swagger documentation from code annotations
-swagger-gen:
-    @echo "Generating Swagger documentation..."
-    swag init -g internal/server/server.go -o docs --parseDependency --parseInternal
 
 # Generate sqlc code
 sqlc-generate:
@@ -38,7 +34,7 @@ sqlc-generate:
     {{sqlc_cmd}} generate
 
 # Build only the backend
-build-backend: sqlc-generate swagger-gen
+build-backend: sqlc-generate
     @echo "Building backend..."
     # LDFLAGS uses the build info
     CGO_ENABLED=0 go build -o {{bin}} -ldflags "{{ldflags}}" ./cmd/server
@@ -63,6 +59,11 @@ run-backend: build-backend
 # Run only the frontend server
 run-frontend:
     cd frontend && pnpm dev
+
+# Run the documentation server locally
+run-docs:
+    @echo "Starting documentation development server..."
+    cd docs && npm run dev
 
 dev-docker:
     cd dev && docker compose up
