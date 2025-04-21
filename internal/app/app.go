@@ -135,7 +135,7 @@ func (a *App) Start() error {
 	return a.server.Start()
 }
 
-// Shutdown gracefully stops all application components.
+// Shutdown gracefully stops all application components with timeouts.
 func (a *App) Shutdown(ctx context.Context) error {
 	a.Logger.Info("shutting down application")
 
@@ -146,30 +146,67 @@ func (a *App) Shutdown(ctx context.Context) error {
 		defer cancel()
 	}
 
+	// Create derived contexts with shorter timeouts for each component
+	serverCtx, serverCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer serverCancel()
+
+	clickhouseCtx, clickhouseCancel := context.WithTimeout(ctx, 8*time.Second)
+	defer clickhouseCancel()
 	// Shutdown server first to stop accepting new requests.
 	if a.server != nil {
-		if err := a.server.Shutdown(ctx); err != nil {
-			a.Logger.Error("error shutting down server", "error", err)
-			// Continue shutdown even if server fails.
+		a.Logger.Info("shutting down HTTP server")
+
+		serverDone := make(chan error, 1)
+		go func() {
+			serverDone <- a.server.Shutdown(serverCtx)
+		}()
+
+		// Wait for server shutdown or timeout
+		select {
+		case err := <-serverDone:
+			if err != nil {
+				a.Logger.Error("error shutting down server", "error", err)
+			} else {
+				a.Logger.Info("HTTP server shut down successfully")
+			}
+		case <-serverCtx.Done():
+			a.Logger.Warn("timeout shutting down HTTP server, continuing")
 		}
 	}
 
 	// Close ClickHouse manager (stops health checks and closes clients).
 	if a.ClickHouse != nil {
-		if err := a.ClickHouse.Close(); err != nil {
-			a.Logger.Error("error closing clickhouse manager", "error", err)
+		a.Logger.Info("shutting down ClickHouse connections")
+
+		clickhouseDone := make(chan error, 1)
+		go func() {
+			clickhouseDone <- a.ClickHouse.Close()
+		}()
+
+		// Wait for ClickHouse shutdown or timeout
+		select {
+		case err := <-clickhouseDone:
+			if err != nil {
+				a.Logger.Error("error closing clickhouse manager", "error", err)
+			} else {
+				a.Logger.Info("ClickHouse connections closed successfully")
+			}
+		case <-clickhouseCtx.Done():
+			a.Logger.Warn("timeout closing ClickHouse connections, continuing")
 		}
 	}
 
 	// Close database connections.
 	if a.SQLite != nil {
+		a.Logger.Info("closing SQLite connection")
+		// SQLite should close almost instantly, no need for a separate goroutine
 		if err := a.SQLite.Close(); err != nil {
-			a.Logger.Error("error closing sqlite", "error", err)
+			a.Logger.Error("error closing SQLite", "error", err)
+		} else {
+			a.Logger.Info("SQLite connection closed successfully")
 		}
 	}
 
-	// Note: ClickHouse manager likely handles connection closing internally when connections become idle or fail.
-	// Explicit shutdown might not be required unless specific cleanup is needed.
-
+	a.Logger.Info("application shutdown complete")
 	return nil
 }

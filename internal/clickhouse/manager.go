@@ -27,6 +27,7 @@ type Manager struct {
 	healthMux  sync.RWMutex  // Protects the health map.
 	hooks      []QueryHook   // Hooks applied to all managed clients.
 	stopHealth chan struct{} // Channel to signal health check goroutine to stop.
+	healthWG   sync.WaitGroup // WaitGroup to wait for health check goroutine to exit.
 }
 
 // NewManager creates a new ClickHouse connection manager.
@@ -56,8 +57,12 @@ func (m *Manager) StartBackgroundHealthChecks(interval time.Duration) {
 
 	ticker := time.NewTicker(interval)
 
+	// Add to wait group before starting the goroutine
+	m.healthWG.Add(1)
+
 	go func() {
 		defer ticker.Stop()
+		defer m.healthWG.Done() // Signal completion when goroutine exits
 		m.logger.Debug("background health check routine started")
 		// Perform an initial check immediately
 		m.checkAllSourcesHealth()
@@ -309,26 +314,98 @@ func (m *Manager) GetHealth(sourceID models.SourceID) models.SourceHealth {
 	return m.GetCachedHealth(sourceID)
 }
 
-// Close iterates through all managed client connections and closes them.
-// It also stops the background health checker.
+// Close iterates through all managed client connections and closes them,
+// with a timeout for each client to prevent hanging on unhealthy connections.
+// It also stops the background health checker and waits for it to complete.
 func (m *Manager) Close() error {
 	m.logger.Info("closing clickhouse manager")
-	// Stop health checks first
+	
+	// Stop health checks first and wait for the goroutine to exit
 	m.StopBackgroundHealthChecks()
-
+	
+	// Wait for the health check goroutine to fully terminate
+	waitChan := make(chan struct{})
+	go func() {
+		m.logger.Info("waiting for health check goroutine to exit")
+		m.healthWG.Wait()
+		close(waitChan)
+	}()
+	
+	// Use a timeout to avoid hanging forever if something goes wrong
+	select {
+	case <-waitChan:
+		m.logger.Info("health check goroutine exited successfully")
+	case <-time.After(5 * time.Second):
+		m.logger.Warn("timed out waiting for health check goroutine to exit, continuing with shutdown")
+	}
+	
 	m.clientsMux.Lock()
 	defer m.clientsMux.Unlock()
 
+	// Close all clients with timeouts and in parallel
+	var wg sync.WaitGroup
+	var mu sync.Mutex
 	var lastErr error
-	for id, client := range m.clients {
-		if err := client.Close(); err != nil {
-			m.logger.Error("error closing client",
-				"source_id", id,
-				"error", err,
-			)
-			lastErr = err // Keep track of the last error.
-		}
+	
+	// Get all the source IDs first
+	clientIDs := make([]models.SourceID, 0, len(m.clients))
+	for id := range m.clients {
+		clientIDs = append(clientIDs, id)
 	}
+	
+	for _, id := range clientIDs {
+		client := m.clients[id]
+		wg.Add(1)
+		
+		// Close each client in a separate goroutine to allow parallel shutdown
+		go func(sourceID models.SourceID, cl *Client) {
+			defer wg.Done()
+			
+			// Use a timeout context for each client close operation
+			closeCtx, closeCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer closeCancel()
+			
+			// Create a done channel to signal completion
+			done := make(chan error, 1)
+			
+			go func() {
+				// Each client.Close() already has its own timeout
+				done <- cl.Close()
+			}()
+			
+			// Wait for client to close or timeout
+			select {
+			case err := <-done:
+				if err != nil {
+					mu.Lock()
+					m.logger.Error("error closing client", "source_id", sourceID, "error", err)
+					lastErr = err // Keep track of the last error
+					mu.Unlock()
+				}
+			case <-closeCtx.Done():
+				mu.Lock()
+				m.logger.Warn("timeout closing client", "source_id", sourceID)
+				mu.Unlock()
+			}
+		}(id, client)
+	}
+	
+	// Wait for all clients to be closed or timeout
+	closeDone := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(closeDone)
+	}()
+	
+	// Add an overall timeout for client closing phase
+	select {
+	case <-closeDone:
+		m.logger.Info("all clients closed successfully")
+	case <-time.After(8 * time.Second): // Overall timeout slightly longer than individual timeouts
+		m.logger.Warn("timeout waiting for all clients to close, continuing shutdown")
+	}
+
+	// Clean up maps
 	m.clients = make(map[models.SourceID]*Client) // Reset map after closing all.
 
 	m.healthMux.Lock()

@@ -274,10 +274,32 @@ func (c *Client) CheckHealth(ctx context.Context) error {
 	return c.conn.Ping(ctx)
 }
 
-// Close terminates the underlying database connection.
+// Close terminates the underlying database connection with a timeout.
 func (c *Client) Close() error {
 	c.logger.Info("closing clickhouse client connection")
-	return c.conn.Close()
+	
+	// Create a timeout context for the close operation
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	
+	// Create a channel to signal completion
+	done := make(chan error, 1)
+	
+	// Close the connection in a goroutine
+	go func() {
+		done <- c.conn.Close()
+	}()
+	
+	// Wait for close to complete or timeout
+	select {
+	case err := <-done:
+		// Connection closed normally
+		return err
+	case <-ctx.Done():
+		// Timeout occurred
+		c.logger.Warn("timeout while closing clickhouse connection, abandoning")
+		return fmt.Errorf("timeout while closing connection")
+	}
 }
 
 // Reconnect attempts to re-establish the connection to the ClickHouse server.
@@ -288,8 +310,25 @@ func (c *Client) Reconnect(ctx context.Context) error {
 
 	// Only attempt reconnect if connection exists but is failing
 	if c.conn != nil {
-		// Try to close the existing connection first
-		_ = c.conn.Close() // Ignore close errors
+		// Try to close the existing connection first with a timeout
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer closeCancel()
+		
+		closeComplete := make(chan struct{})
+		go func() {
+			_ = c.conn.Close() // Ignore close errors
+			close(closeComplete)
+		}()
+		
+		// Wait for close to complete or timeout
+		select {
+		case <-closeComplete:
+			// Successfully closed
+			c.logger.Debug("successfully closed old connection for reconnect")
+		case <-closeCtx.Done():
+			// Timeout occurred
+			c.logger.Warn("timeout closing old connection for reconnect, proceeding anyway")
+		}
 	}
 
 	// Use stored connection options
@@ -303,9 +342,23 @@ func (c *Client) Reconnect(ctx context.Context) error {
 		return fmt.Errorf("reconnecting to clickhouse: %w", err)
 	}
 
-	// Test the new connection
-	if err := newConn.Ping(ctx); err != nil {
-		_ = newConn.Close() // Clean up failed connection
+	// Test the new connection with a short timeout
+	pingCtx, pingCancel := context.WithTimeout(ctx, 3*time.Second)
+	defer pingCancel()
+	
+	if err := newConn.Ping(pingCtx); err != nil {
+		// Clean up failed connection with timeout
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer closeCancel()
+		
+		go func() {
+			_ = newConn.Close() // Clean up failed connection
+			close(make(chan struct{}))
+		}()
+		
+		// Just wait for timeout - we don't care about the result
+		<-closeCtx.Done()
+		
 		return fmt.Errorf("ping after reconnect failed: %w", err)
 	}
 
