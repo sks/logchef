@@ -4,8 +4,7 @@ import { passthroughImageService } from "astro/config";
 
 // https://astro.build/config
 export default defineConfig({
-  base: "/docs",
-  site: "https://logchef.mrkaran.dev/docs/",
+  site: "https://logchef.app",
   image: {
     service: passthroughImageService(),
   },
@@ -28,7 +27,10 @@ export default defineConfig({
         {
           label: "Setup & Configuration",
           items: [
-            { label: "Configuration Guide", link: "/getting-started/configuration" },
+            {
+              label: "Configuration Guide",
+              link: "/getting-started/configuration",
+            },
             { label: "Vector Setup", link: "/integration/vector" },
             { label: "Schema Design", link: "/integration/schema-design" },
           ],
