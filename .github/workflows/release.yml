@@ -29,14 +29,22 @@ jobs:
         with:
           just-version: "1.13.0"
 
-      - name: Set up Node.js
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Use Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v4
         with:
           node-version: "23"
           cache: "pnpm"
+          # Specify the path to the lock file for caching
+          cache-dependency-path: frontend/pnpm-lock.yaml
 
-      - name: Install pnpm
-        run: npm install -g pnpm@10.7.1
+      # Install frontend dependencies
+      - name: Install dependencies
+        run: cd frontend && pnpm install
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -52,12 +60,10 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v5
+        uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
-          version: latest
+          version: "~> v2"
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_ORG: ${{ github.repository_owner }}
-          DOCKER_ORG: ${{ github.repository_owner }}
