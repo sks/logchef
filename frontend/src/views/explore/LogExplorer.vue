@@ -1190,7 +1190,7 @@ const handleQueryExecution = async () => {
     <p class="text-muted-foreground max-w-md">
       You need to be part of a team to explore logs. Contact your administrator.
     </p>
-    <Button variant="outline" @click="router.push({ name: 'Home' })">Go to Dashboard</Button>
+    <Button variant="outline" @click="router.push({ name: 'LogExplorer' })">Go to Dashboard</Button>
   </div>
 
   <!-- No Sources State (Team Selected) -->
@@ -1438,13 +1438,13 @@ const handleQueryExecution = async () => {
                 return acc;
               }, {} as Record<string, { type: string }>) || {}"
                 :activeMode="exploreStore.activeMode === 'logchefql' ? 'logchefql' : 'clickhouse-sql'"
-                :value="exploreStore.activeMode === 'logchefql' ? logchefQuery : sqlQuery" @change="(event: EditorChangeEvent) => event.mode === 'logchefql' ?
+                :value="exploreStore.activeMode === 'logchefql' ? logchefQuery : sqlQuery" @change="(event) => event.mode === 'logchefql' ?
                   updateLogchefqlValue(event.query, event.isUserInput) :
                   updateSqlValue(event.query, event.isUserInput)"
                 :placeholder="exploreStore.activeMode === 'logchefql' ? 'Enter search criteria (e.g., level=&quot;error&quot; and status>400)' : 'Enter SQL query...'"
                 :tsField="sourceDetails?._meta_ts_field || 'timestamp'" :tableName="activeSourceTableName"
                 :showFieldsPanel="showFieldsPanel" @submit="handleQueryExecution"
-                @update:activeMode="(mode: EditorMode, isModeSwitchOnly?: boolean) => changeMode(mode === 'logchefql' ? 'logchefql' : 'sql', isModeSwitchOnly)"
+                @update:activeMode="(mode, isModeSwitchOnly) => changeMode(mode === 'logchefql' ? 'logchefql' : 'sql', isModeSwitchOnly)"
                 @toggle-fields="showFieldsPanel = !showFieldsPanel" @select-saved-query="loadSavedQuery"
                 @save-query="handleSaveOrUpdateClick" class="border-0 border-b" />
 
