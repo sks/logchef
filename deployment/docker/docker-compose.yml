@@ -1,6 +1,6 @@
 services:
   logchef:
-    image: mr-karan/logchef:latest
+    image: mr-karan/logchef:latest-amd64
     container_name: logchef
     restart: on-failure
     ports:
@@ -22,8 +22,6 @@ services:
       timeout: 3s
       retries: 3
       start_period: 10s
-    environment:
-      - DEMO_MODE=true
 
   caddy:
     image: caddy:2-alpine
@@ -184,10 +182,10 @@ configs:
                   method POST PUT DELETE PATCH
               }
 
-              # For non-GET methods, return a 403 with JSON error
+              # For non-GET methods, set header and return a 403 with JSON error
+              header @non_get_methods Content-Type application/json
               respond @non_get_methods 403 {
                   body `{"status":"error","message":"This operation is not permitted in demo mode","error_type":"DEMO_INSTANCE"}`
-                  header Content-Type application/json
               }
 
               # Forward allowed requests to logchef
