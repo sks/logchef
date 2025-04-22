@@ -6,10 +6,17 @@ import router from "./router";
 import { useAuthStore } from "@/stores/auth";
 import { initMonacoSetup } from "@/utils/monaco";
 
+// Track Monaco initialization state
+let monacoInitialized = false;
+
 async function initializeApp() {
   try {
-    // Initialize Monaco editor setup
-    initMonacoSetup();
+    // Initialize Monaco editor setup only once
+    if (!monacoInitialized) {
+      console.log("Initializing Monaco setup globally");
+      initMonacoSetup();
+      monacoInitialized = true;
+    }
 
     // Create app instance
     const app = createApp(App);

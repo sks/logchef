@@ -81,7 +81,18 @@ export function getSingleLineModeOptions(): Partial<monaco.editor.IStandaloneEdi
   };
 }
 
+// Track initialization state
+let setupComplete = false;
+
 export function initMonacoSetup() {
+  // Skip if already initialized
+  if (setupComplete) {
+    console.log("Monaco setup already initialized, skipping");
+    return;
+  }
+  
+  console.log("Initializing Monaco environment and languages");
+  
   // Configure Monaco worker setup (ensure this runs only once)
   if (!window.MonacoEnvironment) {
      window.MonacoEnvironment = {
@@ -90,6 +101,9 @@ export function initMonacoSetup() {
      // Load Monaco configuration
      loader.config({ monaco });
   }
+  
+  // Mark as initialized
+  setupComplete = true;
 
 
   // Define themes - Simplified to avoid styling issues

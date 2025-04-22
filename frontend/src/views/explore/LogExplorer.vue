@@ -1178,6 +1178,7 @@ const handleQueryExecution = async () => {
 </script>
 
 <template>
+  <KeepAlive>
   <!-- Loading State -->
   <div v-if="showLoadingState" class="flex items-center justify-center h-[calc(100vh-12rem)]">
     <p class="text-muted-foreground animate-pulse">Loading Explorer...</p>
@@ -1692,6 +1693,7 @@ const handleQueryExecution = async () => {
         content: exploreStore.activeMode === 'logchefql' ? exploreStore.logchefqlCode : exploreStore.rawSql
       })" @close="showSaveQueryModal = false" @save="handleSaveQuery" @update="handleUpdateQuery" />
   </div>
+  </KeepAlive>
 </template>
 
 <style scoped>

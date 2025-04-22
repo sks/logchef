@@ -139,7 +139,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, shallowRef, watch, onMounted, onBeforeUnmount, nextTick, reactive, watchEffect } from "vue";
+import { ref, computed, shallowRef, watch, onMounted, onBeforeUnmount, onActivated, onDeactivated, nextTick, reactive, watchEffect } from "vue";
 import * as monaco from "monaco-editor";
 import { useDark } from "@vueuse/core";
 import { VueMonacoEditor } from "@guolao/vue-monaco-editor";
@@ -242,6 +242,10 @@ const handleMount = (editor: MonacoEditor) => {
 
   editorRef.value = editor;
   initMonacoSetup(); // Ensure themes/languages are registered (runs once internally)
+
+  // Use cached model if available
+  const model = getOrCreateModel(editorContent.value, props.activeMode);
+  editor.setModel(model);
 
   // Check if we should be in read-only mode
   const isLoading = exploreStore.isLoadingOperation('executeQuery');
@@ -448,10 +452,25 @@ watch(() => props.schema, (newSchema) => {
   lastSchemaHash = schemaKeys;
 
   if (editorRef.value && !isDisposing.value) {
-    console.log("QueryEditor: Schema actually changed, re-registering completions.");
-    registerCompletionProvider();
+    // Use requestIdleCallback to defer non-critical operation
+    if (window.requestIdleCallback) {
+      window.requestIdleCallback(() => {
+        if (editorRef.value && !isDisposing.value) {
+          console.log("QueryEditor: Schema changed, re-registering completions (deferred).");
+          registerCompletionProvider();
+        }
+      }, { timeout: 1000 });
+    } else {
+      // Fallback for browsers without requestIdleCallback
+      setTimeout(() => {
+        if (editorRef.value && !isDisposing.value) {
+          console.log("QueryEditor: Schema changed, re-registering completions (timeout).");
+          registerCompletionProvider();
+        }
+      }, 100);
+    }
   }
-}, { deep: true });
+}, { deep: true, flush: 'post' });
 
 
 // Watch for loading state to make editor read-only
@@ -645,11 +664,30 @@ const focusEditor = (revealLastPosition = false) => {
 };
 
 
+// Model cache to preserve models between mounts
+const modelCache = new Map<string, monaco.editor.ITextModel>();
+
+// Get or create a model from cache
+const getOrCreateModel = (value: string, language: string) => {
+  const key = `${language}-${props.sourceId}`; // Unique key per source
+  if (modelCache.has(key)) {
+    const model = modelCache.get(key)!;
+    // Update model content if needed
+    if (model.getValue() !== value) {
+      model.setValue(value);
+    }
+    return model;
+  }
+  const model = monaco.editor.createModel(value, language);
+  modelCache.set(key, model);
+  return model;
+};
+
 // --- Disposal ---
-const safelyDisposeEditor = () => {
+const safelyDisposeEditor = (fullDisposal = false) => {
   if (isDisposing.value) return;
   isDisposing.value = true;
-  console.log('QueryEditor: Starting disposal...');
+  console.log('QueryEditor: Starting disposal... (full disposal:', fullDisposal, ')');
 
   // Dispose the active completion provider
   if (activeCompletionProvider.value) {
@@ -668,29 +706,83 @@ const safelyDisposeEditor = () => {
   activeDisposables.value = [];
 
   const editor = editorRef.value;
-  editorRef.value = null; // Clear ref immediately
+  
+  if (fullDisposal) {
+    editorRef.value = null; // Clear ref immediately
 
-  // Use a minimal timeout to ensure disposal happens after any pending rendering/updates
-  setTimeout(() => {
+    // Use a minimal timeout to ensure disposal happens after any pending rendering/updates
+    setTimeout(() => {
+      if (editor) {
+        try {
+          const model = editor.getModel();
+          if (model && !model.isDisposed()) {
+            // Detach model before disposing editor
+            editor.setModel(null);
+            // Don't dispose the model if we're caching it
+            if (!modelCache.has(`${props.activeMode}-${props.sourceId}`)) {
+              model.dispose();
+            }
+          }
+          editor.dispose(); // Dispose the editor instance itself
+          console.log('QueryEditor: Editor instance fully disposed.');
+        } catch (e) {
+          console.error("Error during editor instance disposal:", e);
+        }
+      }
+    }, 50); // Small delay
+  } else {
+    // Lightweight disposal - just hide and make read-only
     if (editor) {
       try {
-        const model = editor.getModel();
-        if (model && !model.isDisposed()) {
-          // Detach model before disposing editor
-          editor.setModel(null);
-          model.dispose();
+        const domNode = editor.getDomNode();
+        if (domNode) {
+          domNode.style.display = 'none';
         }
-        editor.dispose(); // Dispose the editor instance itself
-        console.log('QueryEditor: Editor instance disposed.');
+        editor.updateOptions({ readOnly: true });
+        console.log('QueryEditor: Editor instance preserved (lightweight disposal).');
       } catch (e) {
-        console.error("Error during editor instance disposal:", e);
+        console.error("Error during lightweight editor disposal:", e);
       }
     }
-  }, 50); // Small delay
+    
+    // Release the flag after lightweight disposal
+    setTimeout(() => {
+      isDisposing.value = false;
+    }, 50);
+  }
 };
 
+// Handle full disposal on unmount
 onBeforeUnmount(() => {
-  safelyDisposeEditor();
+  safelyDisposeEditor(true); // Full disposal
+});
+
+// Handle lightweight disposal on deactivation (when kept alive)
+onDeactivated(() => {
+  console.log('QueryEditor: Deactivated');
+  if (editorRef.value && !isDisposing.value) {
+    safelyDisposeEditor(false); // Lightweight disposal
+  }
+});
+
+// Handle reactivation
+onActivated(() => {
+  console.log('QueryEditor: Activated');
+  if (editorRef.value) {
+    const domNode = editorRef.value.getDomNode();
+    if (domNode) {
+      domNode.style.display = 'block';
+    }
+    editorRef.value.updateOptions({ readOnly: false });
+    editorRef.value.layout();
+    
+    // Refresh the editor with current content
+    nextTick(() => {
+      if (editorRef.value) {
+        editorRef.value.focus();
+      }
+    });
+  }
 });
 
 // --- Expose ---
