@@ -30,6 +30,9 @@ const (
 
 	// GeneralErrorType is a fallback for general errors
 	GeneralErrorType ErrorType = "GeneralError"
+
+	// DemoInstanceErrorType indicates an operation not permitted in demo mode
+	DemoInstanceErrorType ErrorType = "DEMO_INSTANCE"
 )
 
 // ErrorResponse represents a standardized error response

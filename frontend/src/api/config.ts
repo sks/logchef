@@ -90,6 +90,17 @@ api.interceptors.response.use(
         error_type: "AuthorizationError",
       };
 
+      // Handle demo instance specific errors
+      if (error.response?.data?.error_type === "DEMO_INSTANCE") {
+        const demoError = {
+          status: "error",
+          message: error.response.data.message || "This operation is not permitted in demo mode",
+          error_type: "DemoModeError",
+        };
+        showErrorToast(demoError);
+        return Promise.reject(demoError);
+      }
+
       // Only show toast if not a CSRF error (which is handled separately)
       if (error.response?.data?.code !== "CSRF_TOKEN_MISMATCH") {
         showErrorToast(forbiddenError);
