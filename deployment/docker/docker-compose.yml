@@ -183,10 +183,11 @@ configs:
               }
 
               # For non-GET methods, set header and return a 403 with JSON error
-              header @non_get_methods Content-Type application/json
-              respond @non_get_methods 403 {
-                  body `{"status":"error","message":"This operation is not permitted in demo mode","error_type":"DEMO_INSTANCE"}`
+              @non_get_methods {
+                  method POST PUT DELETE PATCH
               }
+              header Content-Type application/json
+              respond @non_get_methods `{"status":"error","message":"This operation is not permitted in demo mode","error_type":"DEMO_INSTANCE"}` 403
 
               # Forward allowed requests to logchef
               reverse_proxy logchef:8125
