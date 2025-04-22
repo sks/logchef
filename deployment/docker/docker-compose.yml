@@ -10,6 +10,9 @@ services:
       - source: logchef_config
         target: /etc/logchef/config.toml
         mode: 0444
+    # Mount volume for SQLite database persistence
+    volumes:
+      - logchef-data:/data
     depends_on:
       clickhouse:
         condition: service_healthy
@@ -115,6 +118,8 @@ services:
       - logchef_net
 
 volumes:
+  # Add volume for logchef SQLite data
+  logchef-data:
   clickhouse-data:
   clickhouse-logs:
   caddy_data:
@@ -132,7 +137,7 @@ configs:
       host = "0.0.0.0"
 
       [sqlite]
-      path = "local.db"
+      path = "/data/local.db"
 
       [oidc]
       # Use explicit URLs for each endpoint instead of discovery

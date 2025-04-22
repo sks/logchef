@@ -32,9 +32,11 @@ archives:
       {{- .Arch }}
     format_overrides:
       - goos: darwin
-        format: zip
+        formats:
+          - zip
       - goos: linux
-        format: tar.gz
+        formats:
+          - tar.gz
     files:
       - README.md
       - LICENSE*
