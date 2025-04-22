@@ -178,6 +178,10 @@ func (s *Server) handleDeleteUser(c *fiber.Ctx) error {
 		if errors.Is(err, core.ErrUserNotFound) {
 			return SendError(c, fiber.StatusNotFound, "User not found")
 		}
+		// Handle the specific error for deleting the last admin
+		if errors.Is(err, core.ErrCannotDeleteLastAdmin) {
+			return SendError(c, fiber.StatusBadRequest, core.ErrCannotDeleteLastAdmin.Error())
+		}
 		s.log.Error("failed to delete user", "error", err, "user_id", userID)
 		return SendError(c, fiber.StatusInternalServerError, "Error deleting user")
 	}

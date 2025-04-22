@@ -552,9 +552,9 @@ const convertHistogramData = (buckets: HistogramData[]) => {
                 xAxisIndex: 0,
                 start: 0,
                 end: 100,
-                zoomOnMouseWheel: true,
+                zoomOnMouseWheel: false, // Disable mouse wheel zoom
                 moveOnMouseMove: true,
-                moveOnMouseWheel: true
+                moveOnMouseWheel: false // Disable mouse wheel move
             },
             {
                 type: 'slider', // The visual slider component (often at the bottom)
