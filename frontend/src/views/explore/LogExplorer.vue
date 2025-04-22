@@ -1179,14 +1179,15 @@ const handleQueryExecution = async () => {
 
 <template>
   <KeepAlive>
-  <!-- Loading State -->
-  <div v-if="showLoadingState" class="flex items-center justify-center h-[calc(100vh-12rem)]">
-    <p class="text-muted-foreground animate-pulse">Loading Explorer...</p>
-  </div>
+    <div class="log-explorer-wrapper">
+      <!-- Loading State -->
+      <div v-if="showLoadingState" class="flex items-center justify-center h-[calc(100vh-12rem)]">
+        <p class="text-muted-foreground animate-pulse">Loading Explorer...</p>
+      </div>
 
-  <!-- No Teams State -->
-  <div v-else-if="showNoTeamsState"
-    class="flex flex-col items-center justify-center h-[calc(100vh-12rem)] gap-4 text-center">
+      <!-- No Teams State -->
+      <div v-else-if="showNoTeamsState"
+        class="flex flex-col items-center justify-center h-[calc(100vh-12rem)] gap-4 text-center">
     <h2 class="text-2xl font-semibold">No Teams Available</h2>
     <p class="text-muted-foreground max-w-md">
       You need to be part of a team to explore logs. Contact your administrator.
@@ -1692,7 +1693,8 @@ const handleQueryExecution = async () => {
         limit: exploreStore.limit,
         content: exploreStore.activeMode === 'logchefql' ? exploreStore.logchefqlCode : exploreStore.rawSql
       })" @close="showSaveQueryModal = false" @save="handleSaveQuery" @update="handleUpdateQuery" />
-  </div>
+      </div>
+    </div>
   </KeepAlive>
 </template>
 
