@@ -1188,511 +1188,516 @@ const handleQueryExecution = async () => {
       <!-- No Teams State -->
       <div v-else-if="showNoTeamsState"
         class="flex flex-col items-center justify-center h-[calc(100vh-12rem)] gap-4 text-center">
-    <h2 class="text-2xl font-semibold">No Teams Available</h2>
-    <p class="text-muted-foreground max-w-md">
-      You need to be part of a team to explore logs. Contact your administrator.
-    </p>
-    <Button variant="outline" @click="router.push({ name: 'LogExplorer' })">Go to Dashboard</Button>
-  </div>
-
-  <!-- No Sources State (Team Selected) -->
-  <div v-else-if="showNoSourcesState" class="flex flex-col h-[calc(100vh-12rem)]">
-    <!-- Header bar for team selection -->
-    <div class="border-b py-2 px-4 flex items-center h-12">
-      <div class="flex items-center space-x-3">
-        <Select :model-value="currentTeamId?.toString() ?? ''" @update:model-value="handleTeamChange"
-          :disabled="isProcessingTeamChange">
-          <SelectTrigger class="h-8 text-sm w-48">
-            <SelectValue placeholder="Select team">{{ selectedTeamName }}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              <SelectLabel>Teams</SelectLabel>
-              <SelectItem v-for="team in availableTeams" :key="team.id" :value="team.id.toString()">
-                {{ team.name }}
-              </SelectItem>
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-        <span class="text-sm text-muted-foreground italic">No sources in this team.</span>
-      </div>
-      <Button size="sm" class="ml-auto h-8" @click="router.push({ name: 'NewSource' })">
-        Add Source
-      </Button>
-    </div>
-    <!-- Empty state content -->
-    <div class="flex flex-col items-center justify-center flex-1 gap-4 text-center">
-      <h2 class="text-2xl font-semibold">No Log Sources Found</h2>
-      <p class="text-muted-foreground max-w-md">
-        The selected team '{{ selectedTeamName }}' has no sources configured. Add one or switch teams.
-      </p>
-    </div>
-  </div>
-
-  <!-- Source Not Connected State -->
-  <div v-else-if="showSourceNotConnectedState" class="flex flex-col h-screen overflow-hidden">
-    <!-- Filter Bar with Team/Source Selection (similar to main explorer) -->
-    <div class="border-b bg-background py-2 px-4 flex items-center h-12 shadow-sm">
-      <!-- Data Source Group -->
-      <div class="flex items-center space-x-2 min-w-0">
-        <!-- Team Selector -->
-        <Select :model-value="currentTeamId?.toString() ?? ''" @update:model-value="handleTeamChange"
-          :disabled="isProcessingTeamChange">
-          <SelectTrigger class="h-8 text-sm w-48">
-            <SelectValue placeholder="Select team">{{ selectedTeamName }}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              <SelectLabel>Teams</SelectLabel>
-              <SelectItem v-for="team in availableTeams" :key="team.id" :value="team.id.toString()">
-                {{ team.name }}
-              </SelectItem>
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-
-        <!-- Source Selector - Modified to show connection status -->
-        <Select :model-value="currentSourceId?.toString() ?? ''" @update:model-value="handleSourceChange"
-          :disabled="isProcessingSourceChange || !currentTeamId || availableSources.length === 0">
-          <SelectTrigger class="h-8 text-sm w-64">
-            <SelectValue placeholder="Select source">{{ selectedSourceName }}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              <SelectLabel>Log Sources</SelectLabel>
-              <SelectItem v-if="!currentTeamId" value="no-team" disabled>Select a team first</SelectItem>
-              <SelectItem v-else-if="availableSources.length === 0" value="no-sources" disabled>No sources available
-              </SelectItem>
-              <template v-for="source in availableSources" :key="source.id">
-                <SelectItem :value="source.id.toString()">
-                  <div class="flex items-center gap-2">
-                    <span>{{ formatSourceName(source) }}</span>
-                    <span v-if="!source.is_connected"
-                      class="inline-flex items-center text-xs bg-destructive/15 text-destructive px-1.5 py-0.5 rounded">
-                      Disconnected
-                    </span>
-                  </div>
-                </SelectItem>
-              </template>
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-      </div>
-    </div>
-
-    <!-- Source Not Connected Message -->
-    <div class="flex-1 flex flex-col items-center justify-center p-8">
-      <div class="max-w-xl w-full bg-destructive/10 border border-destructive/20 rounded-lg p-6 text-center">
-        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"
-          stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
-          class="mx-auto mb-4 text-destructive">
-          <path d="M18 6 6 18"></path>
-          <path d="m6 6 12 12"></path>
-        </svg>
-        <h2 class="text-xl font-semibold mb-2">Source Not Connected</h2>
-        <p class="text-muted-foreground mb-4">
-          The selected source "{{ selectedSourceName }}" is not properly connected to the database.
-          Please check the source configuration or select a different source.
+        <h2 class="text-2xl font-semibold">No Teams Available</h2>
+        <p class="text-muted-foreground max-w-md">
+          You need to be part of a team to explore logs. Contact your administrator.
         </p>
+        <Button variant="outline" @click="router.push({ name: 'LogExplorer' })">Go to Dashboard</Button>
+      </div>
 
-        <div class="flex items-center justify-center gap-3">
-          <Button variant="outline"
-            @click="router.push({ name: 'SourceSettings', params: { sourceId: currentSourceId } })">
-            Configure Source
-          </Button>
-          <Button variant="default" @click="router.push({ name: 'NewSource' })">
-            Add New Source
+      <!-- No Sources State (Team Selected) -->
+      <div v-else-if="showNoSourcesState" class="flex flex-col h-[calc(100vh-12rem)]">
+        <!-- Header bar for team selection -->
+        <div class="border-b py-2 px-4 flex items-center h-12">
+          <div class="flex items-center space-x-3">
+            <Select :model-value="currentTeamId?.toString() ?? ''" @update:model-value="handleTeamChange"
+              :disabled="isProcessingTeamChange">
+              <SelectTrigger class="h-8 text-sm w-48">
+                <SelectValue placeholder="Select team">{{ selectedTeamName }}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectLabel>Teams</SelectLabel>
+                  <SelectItem v-for="team in availableTeams" :key="team.id" :value="team.id.toString()">
+                    {{ team.name }}
+                  </SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <span class="text-sm text-muted-foreground italic">No sources in this team.</span>
+          </div>
+          <Button size="sm" class="ml-auto h-8" @click="router.push({ name: 'NewSource' })">
+            Add Source
           </Button>
         </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Main Explorer View -->
-  <div v-else class="flex flex-col h-screen overflow-hidden">
-    <!-- URL Error -->
-    <div v-if="initializationError"
-      class="absolute top-0 left-0 right-0 bg-destructive/15 text-destructive px-4 py-2 z-10 flex items-center justify-between">
-      <span class="text-sm">{{ initializationError }}</span>
-      <Button variant="ghost" size="sm" @click="initializationError = null" class="h-7 px-2">Dismiss</Button>
-    </div>
-
-    <!-- Filter Bar -->
-    <div class="border-b bg-background py-2 px-4 flex items-center h-12 shadow-sm">
-      <!-- Data Source Group -->
-      <div class="flex items-center space-x-2 min-w-0">
-        <!-- Team Selector -->
-        <Select :model-value="currentTeamId?.toString() ?? ''" @update:model-value="handleTeamChange"
-          :disabled="isProcessingTeamChange">
-          <SelectTrigger class="h-8 text-sm w-48">
-            <SelectValue placeholder="Select team">{{ selectedTeamName }}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              <SelectLabel>Teams</SelectLabel>
-              <SelectItem v-for="team in availableTeams" :key="team.id" :value="team.id.toString()">
-                {{ team.name }}
-              </SelectItem>
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-
-        <!-- Source Selector -->
-        <Select :model-value="currentSourceId?.toString() ?? ''" @update:model-value="handleSourceChange"
-          :disabled="isProcessingSourceChange || !currentTeamId || availableSources.length === 0">
-          <SelectTrigger class="h-8 text-sm w-64">
-            <SelectValue placeholder="Select source">{{ selectedSourceName }}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              <SelectLabel>Log Sources</SelectLabel>
-              <SelectItem v-if="!currentTeamId" value="no-team" disabled>Select a team first</SelectItem>
-              <SelectItem v-else-if="availableSources.length === 0" value="no-sources" disabled>No sources available
-              </SelectItem>
-              <template v-for="source in availableSources" :key="source.id">
-                <SelectItem :value="source.id.toString()">
-                  <div class="flex items-center gap-2">
-                    <span>{{ formatSourceName(source) }}</span>
-                    <span v-if="!source.is_connected"
-                      class="inline-flex items-center text-xs bg-destructive/15 text-destructive px-1.5 py-0.5 rounded">
-                      Disconnected
-                    </span>
-                  </div>
-                </SelectItem>
-              </template>
-            </SelectGroup>
-          </SelectContent>
-        </Select>
+        <!-- Empty state content -->
+        <div class="flex flex-col items-center justify-center flex-1 gap-4 text-center">
+          <h2 class="text-2xl font-semibold">No Log Sources Found</h2>
+          <p class="text-muted-foreground max-w-md">
+            The selected team '{{ selectedTeamName }}' has no sources configured. Add one or switch teams.
+          </p>
+        </div>
       </div>
 
-      <!-- Divider -->
-      <div class="h-6 w-px bg-border mx-3"></div>
+      <!-- Source Not Connected State -->
+      <div v-else-if="showSourceNotConnectedState" class="flex flex-col h-screen overflow-hidden">
+        <!-- Filter Bar with Team/Source Selection (similar to main explorer) -->
+        <div class="border-b bg-background py-2 px-4 flex items-center h-12 shadow-sm">
+          <!-- Data Source Group -->
+          <div class="flex items-center space-x-2 min-w-0">
+            <!-- Team Selector -->
+            <Select :model-value="currentTeamId?.toString() ?? ''" @update:model-value="handleTeamChange"
+              :disabled="isProcessingTeamChange">
+              <SelectTrigger class="h-8 text-sm w-48">
+                <SelectValue placeholder="Select team">{{ selectedTeamName }}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectLabel>Teams</SelectLabel>
+                  <SelectItem v-for="team in availableTeams" :key="team.id" :value="team.id.toString()">
+                    {{ team.name }}
+                  </SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
 
-      <!-- Time Controls Group -->
-      <div class="flex items-center space-x-2 flex-grow">
-        <!-- Date/Time Picker with ref -->
-        <DateTimePicker ref="dateTimePickerRef" v-model="dateRange" class="h-8" />
-
-        <!-- Limit Dropdown -->
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" class="h-8 text-sm justify-between px-2 min-w-[90px]">
-              <span>Limit:</span> {{ exploreStore.limit.toLocaleString() }}
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuLabel>Results Limit</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem v-for="limit in [100, 500, 1000, 2000, 5000, 10000]" :key="limit"
-              @click="handleLimitChange(limit)" :disabled="exploreStore.limit === limit">
-              {{ limit.toLocaleString() }} rows
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-
-      <!-- Share Button -->
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="outline" size="sm" class="h-8 ml-2" @click="copyUrlToClipboard">
-              <Share2 class="h-4 w-4 mr-1.5" />
-              Share
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>Copy shareable link</p>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-    </div>
-
-    <!-- Main Content Area -->
-    <div class="flex flex-1 min-h-0">
-      <FieldSideBar v-model:expanded="showFieldsPanel" :fields="availableFields" />
-
-      <div class="flex-1 flex flex-col h-full min-w-0 overflow-hidden">
-        <!-- Query Editor Section -->
-        <div class="px-4 py-3">
-          <!-- Loading States and UI Components -->
-          <template v-if="isChangingContext || (currentSourceId && isLoadingSourceDetails)">
-            <!-- Loading indicator - shown during all loading states -->
-            <div
-              class="flex items-center justify-center text-muted-foreground p-6 border rounded-md bg-card shadow-sm animate-pulse">
-              <div class="flex items-center space-x-2">
-                <svg class="animate-spin h-5 w-5 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none"
-                  viewBox="0 0 24 24">
-                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                  <path class="opacity-75" fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                  </path>
-                </svg>
-                <span>{{ isChangingContext ? 'Loading context data...' : 'Loading source details...' }}</span>
-              </div>
-            </div>
-          </template>
-
-          <!-- Query Editor - only show when we have valid source and time range -->
-          <template v-else-if="currentSourceId && hasValidSource && exploreStore.timeRange">
-            <div class="bg-card shadow-sm rounded-md overflow-hidden">
-              <QueryEditor ref="queryEditorRef" :sourceId="currentSourceId" :teamId="currentTeamId ?? 0" :schema="sourceDetails?.columns?.reduce((acc: Record<string, { type: string }>, col: { name: string; type: string }) => {
-                acc[col.name] = { type: col.type };
-                return acc;
-              }, {} as Record<string, { type: string }>) || {}"
-                :activeMode="exploreStore.activeMode === 'logchefql' ? 'logchefql' : 'clickhouse-sql'"
-                :value="exploreStore.activeMode === 'logchefql' ? logchefQuery : sqlQuery" @change="(event) => event.mode === 'logchefql' ?
-                  updateLogchefqlValue(event.query, event.isUserInput) :
-                  updateSqlValue(event.query, event.isUserInput)"
-                :placeholder="exploreStore.activeMode === 'logchefql' ? 'Enter search criteria (e.g., level=&quot;error&quot; and status>400)' : 'Enter SQL query...'"
-                :tsField="sourceDetails?._meta_ts_field || 'timestamp'" :tableName="activeSourceTableName"
-                :showFieldsPanel="showFieldsPanel" @submit="handleQueryExecution"
-                @update:activeMode="(mode, isModeSwitchOnly) => changeMode(mode === 'logchefql' ? 'logchefql' : 'sql', isModeSwitchOnly)"
-                @toggle-fields="showFieldsPanel = !showFieldsPanel" @select-saved-query="loadSavedQuery"
-                @save-query="handleSaveOrUpdateClick" class="border-0 border-b" />
-
-              <!-- Sort Key Optimization Hint (Collapsible) -->
-              <div
-                v-if="sourceDetails?.sort_keys && (sourceDetails.sort_keys.length > 1 || (sourceDetails.sort_keys.length === 1 && sourceDetails.sort_keys[0] !== sourceDetails?._meta_ts_field))"
-                class="border-t bg-blue-50 dark:bg-blue-950/20">
-                <button
-                  class="w-full px-3 py-1.5 text-xs flex items-center justify-between text-blue-700 dark:text-blue-300 font-medium hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
-                  @click="showPerformanceTip = !showPerformanceTip">
-                  <div class="flex items-center">
-                    <Info class="text-blue-600 dark:text-blue-400 h-4 w-4 mr-2" />
-                    <span>ClickHouse Performance Tip: Filter by
-                      <span v-for="(key, index) in sourceDetails?.sort_keys || []" :key="key" class="inline-flex">
-                        <code class="px-1 bg-blue-100 dark:bg-blue-900 rounded font-mono">{{ key }}</code>
-                        <span v-if="index < (sourceDetails?.sort_keys?.length || 0) - 1" class="px-0.5">,</span>
-                      </span>
-                    </span>
-                  </div>
-                  <svg class="h-4 w-4 transition-transform" :class="{ 'rotate-180': showPerformanceTip }"
-                    xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-
-                <div v-if="showPerformanceTip"
-                  class="px-3 pb-3 pt-0 text-xs text-blue-800 dark:text-blue-200 space-y-2">
-                  <div class="flex items-center justify-between">
-                    <p>Sort Keys:
-                      <span v-for="(key, index) in sourceDetails?.sort_keys || []" :key="key" class="inline-flex">
-                        <code class="px-1 bg-blue-100 dark:bg-blue-900 rounded font-mono">{{ key }}</code>
-                        <span v-if="index < (sourceDetails?.sort_keys?.length || 0) - 1" class="px-0.5">,</span>
-                      </span>
-                    </p>
-                    <Button variant="outline" size="sm"
-                      class="h-6 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700 px-2"
-                      @click="insertExampleQuery(sourceDetails?.sort_keys || [])">
-                      <Plus class="h-3 w-3 mr-1" />
-                      Use Example
-                    </Button>
-                  </div>
-
-                  <div class="border-l-2 border-blue-300 dark:border-blue-700 pl-3 space-y-1.5">
-                    <p class="font-medium">Why this matters:</p>
-                    <p class="text-blue-700 dark:text-blue-300">ClickHouse performs best when queries filter by sort
-                      keys in order. This can significantly boost query speed.</p>
-                    <p class="text-blue-600 dark:text-blue-400 italic text-xs">
-                      Optimal filtering:
-                      <span v-for="(key, index) in sourceDetails?.sort_keys || []" :key="key">
-                        <code class="px-1 bg-blue-100 dark:bg-blue-900/50 rounded">{{ key }}</code>
-                        <span v-if="index < (sourceDetails?.sort_keys?.length || 0) - 1"> then </span>
-                      </span>
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </template>
-
-          <!-- "Select source" message - only when no source selected -->
-          <template v-else-if="currentTeamId && !currentSourceId">
-            <div class="flex items-center justify-center text-muted-foreground p-6 border rounded-md bg-card shadow-sm">
-              <div class="text-center">
-                <div class="mb-2 text-muted-foreground/70">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                    class="mx-auto mb-1">
-                    <path
-                      d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z" />
-                  </svg>
-                </div>
-                <p class="text-sm">Please select a log source to begin exploring.</p>
-              </div>
-            </div>
-          </template>
-
-          <!-- Loading fallback - for any other state -->
-          <template v-else>
-            <div class="flex items-center justify-center p-6 border rounded-md bg-card shadow-sm">
-              <div class="text-center">
-                <p class="text-sm text-muted-foreground">Loading explorer...</p>
-              </div>
-            </div>
-          </template>
-
-          <!-- Query Controls (only if NOT changing context and source is valid) -->
-          <div class="mt-3 flex items-center justify-between border-t pt-3"
-            v-if="!isChangingContext && currentSourceId && hasValidSource && exploreStore.timeRange">
-            <div class="flex items-center gap-2">
-              <Button variant="default" class="h-9 px-4 flex items-center gap-2 shadow-sm" :class="{
-                'bg-amber-500 hover:bg-amber-600 text-amber-foreground': isDirty && !isExecutingQuery,
-                'bg-primary hover:bg-primary/90 text-primary-foreground': isExecutingQuery
-              }" :disabled="isExecutingQuery || !canExecuteQuery" @click="handleQueryExecution">
-                <Play v-if="!isExecutingQuery" class="h-4 w-4" />
-                <RefreshCw v-else class="h-4 w-4 animate-spin" />
-                <span>{{ isDirty ? 'Run Query*' : 'Run Query' }}</span>
-                <div class="flex flex-col items-start ml-1 border-l border-current/20 pl-2 text-xs text-current">
-                  <div class="flex items-center gap-1">
-                    <Keyboard class="h-3 w-3" />
-                    <span>Ctrl+Enter</span>
-                  </div>
-                </div>
-              </Button>
-              <!-- New Clear Button -->
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button variant="outline" size="sm" class="h-9 px-3 flex items-center gap-1.5"
-                      @click="clearQueryEditor" :disabled="isExecutingQuery" aria-label="Clear query editor">
-                      <Eraser class="h-3.5 w-3.5" />
-                      <span>Clear</span>
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">
-                    <p>Clear Query</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-
-              <!-- Group By Selector - Moved here -->
-              <div class="flex items-center gap-2">
-                <label class="text-xs text-muted-foreground whitespace-nowrap">Group By:</label>
-                <Select v-model="groupByField" class="max-w-[140px] h-8">
-                  <SelectTrigger class="h-8 text-xs">
-                    <SelectValue placeholder="No Grouping">
-                      {{ groupByField === '__none__' ? 'No Grouping' : groupByField }}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">No Grouping</SelectItem>
-                    <SelectItem v-for="field in availableFields" :key="field.name" :value="field.name">
-                      {{ field.name }}
+            <!-- Source Selector - Modified to show connection status -->
+            <Select :model-value="currentSourceId?.toString() ?? ''" @update:model-value="handleSourceChange"
+              :disabled="isProcessingSourceChange || !currentTeamId || availableSources.length === 0">
+              <SelectTrigger class="h-8 text-sm w-64">
+                <SelectValue placeholder="Select source">{{ selectedSourceName }}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectLabel>Log Sources</SelectLabel>
+                  <SelectItem v-if="!currentTeamId" value="no-team" disabled>Select a team first</SelectItem>
+                  <SelectItem v-else-if="availableSources.length === 0" value="no-sources" disabled>No sources available
+                  </SelectItem>
+                  <template v-for="source in availableSources" :key="source.id">
+                    <SelectItem :value="source.id.toString()">
+                      <div class="flex items-center gap-2">
+                        <span>{{ formatSourceName(source) }}</span>
+                        <span v-if="!source.is_connected"
+                          class="inline-flex items-center text-xs bg-destructive/15 text-destructive px-1.5 py-0.5 rounded">
+                          Disconnected
+                        </span>
+                      </div>
                     </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <!-- Query Stats Preview -->
-            <div class="text-xs text-muted-foreground flex items-center" v-if="exploreStore.lastExecutionTimestamp">
-              <span>Last successful run: {{ new Date(exploreStore.lastExecutionTimestamp).toLocaleTimeString() }}</span>
-            </div>
-          </div>
-
-          <!-- Query Error -->
-          <div v-if="displayError" class="mt-2 text-sm text-destructive bg-destructive/10 p-2 rounded">
-            <div class="font-medium">Query Error:</div>
-            <div>{{ displayError }}</div>
-            <div v-if="displayError.includes('Missing boolean operator')"
-              class="mt-1.5 pt-1.5 border-t border-destructive/20 text-xs">
-              <div class="font-medium">Hint:</div>
-              <div>Use <code class="bg-muted px-1 rounded">and</code> or <code class="bg-muted px-1 rounded">or</code>
-                between conditions.</div>
-              <div class="mt-1">Example: <code class="bg-muted px-1 rounded">level="error" and
-                service_name="api-gateway"</code></div>
-            </div>
+                  </template>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
-        <!-- Log Histogram Visualization -->
-        <div class="px-4 pb-3" v-if="!isChangingContext && currentSourceId && hasValidSource && exploreStore.timeRange">
-          <LogHistogram :time-range="exploreStore.timeRange" :is-loading="isExecutingQuery"
-            :group-by="groupByField === '__none__' ? undefined : groupByField"
-            @zoom-time-range="handleHistogramTimeRangeZoom" @update:timeRange="handleHistogramTimeRangeUpdate" />
-        </div>
+        <!-- Source Not Connected Message -->
+        <div class="flex-1 flex flex-col items-center justify-center p-8">
+          <div class="max-w-xl w-full bg-destructive/10 border border-destructive/20 rounded-lg p-6 text-center">
+            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+              class="mx-auto mb-4 text-destructive">
+              <path d="M18 6 6 18"></path>
+              <path d="m6 6 12 12"></path>
+            </svg>
+            <h2 class="text-xl font-semibold mb-2">Source Not Connected</h2>
+            <p class="text-muted-foreground mb-4">
+              The selected source "{{ selectedSourceName }}" is not properly connected to the database.
+              Please check the source configuration or select a different source.
+            </p>
 
-        <!-- Results Section -->
-        <div class="flex-1 overflow-hidden flex flex-col border-t mt-2">
-          <!-- Results Area -->
-          <div class="flex-1 overflow-hidden relative bg-background">
-            <!-- Results Table (Render if logs exist OR if loading) -->
-            <template v-if="exploreStore.logs?.length > 0 || isExecutingQuery">
-              <!-- Render DataTable only if columns are available -->
-              <DataTable v-if="exploreStore.columns?.length > 0"
-                :key="`${exploreStore.sourceId}-${exploreStore.activeMode}-${exploreStore.queryId}`"
-                :columns="exploreStore.columns as any" :data="exploreStore.logs" :stats="exploreStore.queryStats"
-                :is-loading="isExecutingQuery" :source-id="String(exploreStore.sourceId)"
-                :team-id="teamsStore.currentTeamId" :timestamp-field="sourcesStore.currentSourceDetails?._meta_ts_field"
-                :severity-field="sourcesStore.currentSourceDetails?._meta_severity_field" :timezone="displayTimezone"
-                :query-fields="queryFields" :regex-highlights="regexHighlights" :active-mode="activeMode"
-                @drill-down="handleDrillDown" />
-              <!-- Show loading placeholder if loading but columns aren't ready -->
-              <div v-else-if="isExecutingQuery"
-                class="absolute inset-0 flex items-center justify-center bg-background/70 z-10">
-                <p class="text-muted-foreground animate-pulse">Loading results...</p>
-              </div>
-            </template>
-
-            <!-- No Results State -->
-            <template v-else-if="!isExecutingQuery && !exploreStore.logs?.length && exploreStore.lastExecutedState">
-              <div class="h-full flex flex-col items-center justify-center p-10 text-center">
-                <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none"
-                  stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
-                  class="text-muted-foreground mb-3">
-                  <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path>
-                  <polyline points="14 2 14 8 20 8"></polyline>
-                  <line x1="12" x2="12" y1="18" y2="12"></line>
-                  <line x1="9" x2="15" y1="15" y2="15"></line>
-                </svg>
-                <h3 class="text-lg font-medium mb-1">No Logs Found</h3>
-                <p class="text-sm text-muted-foreground max-w-md">
-                  Your query returned no results for the selected time range. Try adjusting the query or time.
-                </p>
-                <Button variant="outline" size="sm" class="mt-4 h-8" @click="openDatePicker">
-                  <CalendarIcon class="h-3.5 w-3.5 mr-2" />
-                  Adjust Timerange
-                </Button>
-              </div>
-            </template>
-
-            <!-- Initial State -->
-            <template v-else-if="!isExecutingQuery && !exploreStore.lastExecutedState && canExecuteQuery">
-              <div class="h-full flex flex-col items-center justify-center p-10 text-center">
-                <div class="bg-primary/5 p-6 rounded-full mb-4">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
-                    class="text-primary">
-                    <circle cx="11" cy="11" r="8"></circle>
-                    <line x1="21" x2="16.65" y1="21" y2="16.65"></line>
-                    <line x1="11" x2="11" y1="8" y2="14"></line>
-                    <line x1="8" x2="14" y1="11" y2="11"></line>
-                  </svg>
-                </div>
-                <h3 class="text-xl font-medium mb-2">Ready to Explore</h3>
-                <p class="text-sm text-muted-foreground max-w-md mb-4">
-                  Enter a query or use the default, then click 'Run' to see logs.
-                </p>
-                <Button variant="outline" size="sm" @click="handleQueryExecution"
-                  class="border-primary/20 text-primary hover:bg-primary/5 hover:text-primary hover:border-primary/30">
-                  <Play class="h-3.5 w-3.5 mr-1.5" />
-                  Run default query
-                </Button>
-              </div>
-            </template>
+            <div class="flex items-center justify-center gap-3">
+              <Button variant="outline"
+                @click="router.push({ name: 'SourceSettings', params: { sourceId: currentSourceId } })">
+                Configure Source
+              </Button>
+              <Button variant="default" @click="router.push({ name: 'NewSource' })">
+                Add New Source
+              </Button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- Save Query Modal -->
-    <SaveQueryModal v-if="showSaveQueryModal" :is-open="showSaveQueryModal" :query-type="exploreStore.activeMode"
-      :edit-data="editQueryData" :query-content="JSON.stringify({
-        sourceId: currentSourceId,
-        limit: exploreStore.limit,
-        content: exploreStore.activeMode === 'logchefql' ? exploreStore.logchefqlCode : exploreStore.rawSql
-      })" @close="showSaveQueryModal = false" @save="handleSaveQuery" @update="handleUpdateQuery" />
+      <!-- Main Explorer View -->
+      <div v-else class="flex flex-col h-screen overflow-hidden">
+        <!-- URL Error -->
+        <div v-if="initializationError"
+          class="absolute top-0 left-0 right-0 bg-destructive/15 text-destructive px-4 py-2 z-10 flex items-center justify-between">
+          <span class="text-sm">{{ initializationError }}</span>
+          <Button variant="ghost" size="sm" @click="initializationError = null" class="h-7 px-2">Dismiss</Button>
+        </div>
+
+        <!-- Filter Bar -->
+        <div class="border-b bg-background py-2 px-4 flex items-center h-12 shadow-sm">
+          <!-- Data Source Group -->
+          <div class="flex items-center space-x-2 min-w-0">
+            <!-- Team Selector -->
+            <Select :model-value="currentTeamId?.toString() ?? ''" @update:model-value="handleTeamChange"
+              :disabled="isProcessingTeamChange">
+              <SelectTrigger class="h-8 text-sm w-48">
+                <SelectValue placeholder="Select team">{{ selectedTeamName }}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectLabel>Teams</SelectLabel>
+                  <SelectItem v-for="team in availableTeams" :key="team.id" :value="team.id.toString()">
+                    {{ team.name }}
+                  </SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+
+            <!-- Source Selector -->
+            <Select :model-value="currentSourceId?.toString() ?? ''" @update:model-value="handleSourceChange"
+              :disabled="isProcessingSourceChange || !currentTeamId || availableSources.length === 0">
+              <SelectTrigger class="h-8 text-sm w-64">
+                <SelectValue placeholder="Select source">{{ selectedSourceName }}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectLabel>Log Sources</SelectLabel>
+                  <SelectItem v-if="!currentTeamId" value="no-team" disabled>Select a team first</SelectItem>
+                  <SelectItem v-else-if="availableSources.length === 0" value="no-sources" disabled>No sources available
+                  </SelectItem>
+                  <template v-for="source in availableSources" :key="source.id">
+                    <SelectItem :value="source.id.toString()">
+                      <div class="flex items-center gap-2">
+                        <span>{{ formatSourceName(source) }}</span>
+                        <span v-if="!source.is_connected"
+                          class="inline-flex items-center text-xs bg-destructive/15 text-destructive px-1.5 py-0.5 rounded">
+                          Disconnected
+                        </span>
+                      </div>
+                    </SelectItem>
+                  </template>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <!-- Divider -->
+          <div class="h-6 w-px bg-border mx-3"></div>
+
+          <!-- Time Controls Group -->
+          <div class="flex items-center space-x-2 flex-grow">
+            <!-- Date/Time Picker with ref -->
+            <DateTimePicker ref="dateTimePickerRef" v-model="dateRange" class="h-8" />
+
+            <!-- Limit Dropdown -->
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" class="h-8 text-sm justify-between px-2 min-w-[90px]">
+                  <span>Limit:</span> {{ exploreStore.limit.toLocaleString() }}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel>Results Limit</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem v-for="limit in [100, 500, 1000, 2000, 5000, 10000]" :key="limit"
+                  @click="handleLimitChange(limit)" :disabled="exploreStore.limit === limit">
+                  {{ limit.toLocaleString() }} rows
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+
+          <!-- Share Button -->
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="outline" size="sm" class="h-8 ml-2" @click="copyUrlToClipboard">
+                  <Share2 class="h-4 w-4 mr-1.5" />
+                  Share
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Copy shareable link</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+
+        <!-- Main Content Area -->
+        <div class="flex flex-1 min-h-0">
+          <FieldSideBar v-model:expanded="showFieldsPanel" :fields="availableFields" />
+
+          <div class="flex-1 flex flex-col h-full min-w-0 overflow-hidden">
+            <!-- Query Editor Section -->
+            <div class="px-4 py-3">
+              <!-- Loading States and UI Components -->
+              <template v-if="isChangingContext || (currentSourceId && isLoadingSourceDetails)">
+                <!-- Loading indicator - shown during all loading states -->
+                <div
+                  class="flex items-center justify-center text-muted-foreground p-6 border rounded-md bg-card shadow-sm animate-pulse">
+                  <div class="flex items-center space-x-2">
+                    <svg class="animate-spin h-5 w-5 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none"
+                      viewBox="0 0 24 24">
+                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                      <path class="opacity-75" fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                      </path>
+                    </svg>
+                    <span>{{ isChangingContext ? 'Loading context data...' : 'Loading source details...' }}</span>
+                  </div>
+                </div>
+              </template>
+
+              <!-- Query Editor - only show when we have valid source and time range -->
+              <template v-else-if="currentSourceId && hasValidSource && exploreStore.timeRange">
+                <div class="bg-card shadow-sm rounded-md overflow-hidden">
+                  <QueryEditor ref="queryEditorRef" :sourceId="currentSourceId" :teamId="currentTeamId ?? 0" :schema="sourceDetails?.columns?.reduce((acc: Record<string, { type: string }>, col: { name: string; type: string }) => {
+                    acc[col.name] = { type: col.type };
+                    return acc;
+                  }, {} as Record<string, { type: string }>) || {}"
+                    :activeMode="exploreStore.activeMode === 'logchefql' ? 'logchefql' : 'clickhouse-sql'"
+                    :value="exploreStore.activeMode === 'logchefql' ? logchefQuery : sqlQuery" @change="(event) => event.mode === 'logchefql' ?
+                      updateLogchefqlValue(event.query, event.isUserInput) :
+                      updateSqlValue(event.query, event.isUserInput)"
+                    :placeholder="exploreStore.activeMode === 'logchefql' ? 'Enter search criteria (e.g., level=&quot;error&quot; and status>400)' : 'Enter SQL query...'"
+                    :tsField="sourceDetails?._meta_ts_field || 'timestamp'" :tableName="activeSourceTableName"
+                    :showFieldsPanel="showFieldsPanel" @submit="handleQueryExecution"
+                    @update:activeMode="(mode, isModeSwitchOnly) => changeMode(mode === 'logchefql' ? 'logchefql' : 'sql', isModeSwitchOnly)"
+                    @toggle-fields="showFieldsPanel = !showFieldsPanel" @select-saved-query="loadSavedQuery"
+                    @save-query="handleSaveOrUpdateClick" class="border-0 border-b" />
+
+                  <!-- Sort Key Optimization Hint (Collapsible) -->
+                  <div
+                    v-if="sourceDetails?.sort_keys && (sourceDetails.sort_keys.length > 1 || (sourceDetails.sort_keys.length === 1 && sourceDetails.sort_keys[0] !== sourceDetails?._meta_ts_field))"
+                    class="border-t bg-blue-50 dark:bg-blue-950/20">
+                    <button
+                      class="w-full px-3 py-1.5 text-xs flex items-center justify-between text-blue-700 dark:text-blue-300 font-medium hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
+                      @click="showPerformanceTip = !showPerformanceTip">
+                      <div class="flex items-center">
+                        <Info class="text-blue-600 dark:text-blue-400 h-4 w-4 mr-2" />
+                        <span>ClickHouse Performance Tip: Filter by
+                          <span v-for="(key, index) in sourceDetails?.sort_keys || []" :key="key" class="inline-flex">
+                            <code class="px-1 bg-blue-100 dark:bg-blue-900 rounded font-mono">{{ key }}</code>
+                            <span v-if="index < (sourceDetails?.sort_keys?.length || 0) - 1" class="px-0.5">,</span>
+                          </span>
+                        </span>
+                      </div>
+                      <svg class="h-4 w-4 transition-transform" :class="{ 'rotate-180': showPerformanceTip }"
+                        xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </button>
+
+                    <div v-if="showPerformanceTip"
+                      class="px-3 pb-3 pt-0 text-xs text-blue-800 dark:text-blue-200 space-y-2">
+                      <div class="flex items-center justify-between">
+                        <p>Sort Keys:
+                          <span v-for="(key, index) in sourceDetails?.sort_keys || []" :key="key" class="inline-flex">
+                            <code class="px-1 bg-blue-100 dark:bg-blue-900 rounded font-mono">{{ key }}</code>
+                            <span v-if="index < (sourceDetails?.sort_keys?.length || 0) - 1" class="px-0.5">,</span>
+                          </span>
+                        </p>
+                        <Button variant="outline" size="sm"
+                          class="h-6 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700 px-2"
+                          @click="insertExampleQuery(sourceDetails?.sort_keys || [])">
+                          <Plus class="h-3 w-3 mr-1" />
+                          Use Example
+                        </Button>
+                      </div>
+
+                      <div class="border-l-2 border-blue-300 dark:border-blue-700 pl-3 space-y-1.5">
+                        <p class="font-medium">Why this matters:</p>
+                        <p class="text-blue-700 dark:text-blue-300">ClickHouse performs best when queries filter by sort
+                          keys in order. This can significantly boost query speed.</p>
+                        <p class="text-blue-600 dark:text-blue-400 italic text-xs">
+                          Optimal filtering:
+                          <span v-for="(key, index) in sourceDetails?.sort_keys || []" :key="key">
+                            <code class="px-1 bg-blue-100 dark:bg-blue-900/50 rounded">{{ key }}</code>
+                            <span v-if="index < (sourceDetails?.sort_keys?.length || 0) - 1"> then </span>
+                          </span>
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </template>
+
+              <!-- "Select source" message - only when no source selected -->
+              <template v-else-if="currentTeamId && !currentSourceId">
+                <div
+                  class="flex items-center justify-center text-muted-foreground p-6 border rounded-md bg-card shadow-sm">
+                  <div class="text-center">
+                    <div class="mb-2 text-muted-foreground/70">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                        class="mx-auto mb-1">
+                        <path
+                          d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z" />
+                      </svg>
+                    </div>
+                    <p class="text-sm">Please select a log source to begin exploring.</p>
+                  </div>
+                </div>
+              </template>
+
+              <!-- Loading fallback - for any other state -->
+              <template v-else>
+                <div class="flex items-center justify-center p-6 border rounded-md bg-card shadow-sm">
+                  <div class="text-center">
+                    <p class="text-sm text-muted-foreground">Loading explorer...</p>
+                  </div>
+                </div>
+              </template>
+
+              <!-- Query Controls (only if NOT changing context and source is valid) -->
+              <div class="mt-3 flex items-center justify-between border-t pt-3"
+                v-if="!isChangingContext && currentSourceId && hasValidSource && exploreStore.timeRange">
+                <div class="flex items-center gap-2">
+                  <Button variant="default" class="h-9 px-4 flex items-center gap-2 shadow-sm" :class="{
+                    'bg-amber-500 hover:bg-amber-600 text-amber-foreground': isDirty && !isExecutingQuery,
+                    'bg-primary hover:bg-primary/90 text-primary-foreground': isExecutingQuery
+                  }" :disabled="isExecutingQuery || !canExecuteQuery" @click="handleQueryExecution">
+                    <Play v-if="!isExecutingQuery" class="h-4 w-4" />
+                    <RefreshCw v-else class="h-4 w-4 animate-spin" />
+                    <span>{{ isDirty ? 'Run Query*' : 'Run Query' }}</span>
+                    <div class="flex flex-col items-start ml-1 border-l border-current/20 pl-2 text-xs text-current">
+                      <div class="flex items-center gap-1">
+                        <Keyboard class="h-3 w-3" />
+                        <span>Ctrl+Enter</span>
+                      </div>
+                    </div>
+                  </Button>
+                  <!-- New Clear Button -->
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button variant="outline" size="sm" class="h-9 px-3 flex items-center gap-1.5"
+                          @click="clearQueryEditor" :disabled="isExecutingQuery" aria-label="Clear query editor">
+                          <Eraser class="h-3.5 w-3.5" />
+                          <span>Clear</span>
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom">
+                        <p>Clear Query</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+
+                  <!-- Group By Selector - Moved here -->
+                  <div class="flex items-center gap-2">
+                    <label class="text-xs text-muted-foreground whitespace-nowrap">Group By:</label>
+                    <Select v-model="groupByField" class="max-w-[140px] h-8">
+                      <SelectTrigger class="h-8 text-xs">
+                        <SelectValue placeholder="No Grouping">
+                          {{ groupByField === '__none__' ? 'No Grouping' : groupByField }}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">No Grouping</SelectItem>
+                        <SelectItem v-for="field in availableFields" :key="field.name" :value="field.name">
+                          {{ field.name }}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <!-- Query Stats Preview -->
+                <div class="text-xs text-muted-foreground flex items-center" v-if="exploreStore.lastExecutionTimestamp">
+                  <span>Last successful run: {{ new Date(exploreStore.lastExecutionTimestamp).toLocaleTimeString()
+                  }}</span>
+                </div>
+              </div>
+
+              <!-- Query Error -->
+              <div v-if="displayError" class="mt-2 text-sm text-destructive bg-destructive/10 p-2 rounded">
+                <div class="font-medium">Query Error:</div>
+                <div>{{ displayError }}</div>
+                <div v-if="displayError.includes('Missing boolean operator')"
+                  class="mt-1.5 pt-1.5 border-t border-destructive/20 text-xs">
+                  <div class="font-medium">Hint:</div>
+                  <div>Use <code class="bg-muted px-1 rounded">and</code> or <code
+                      class="bg-muted px-1 rounded">or</code>
+                    between conditions.</div>
+                  <div class="mt-1">Example: <code class="bg-muted px-1 rounded">level="error" and
+                service_name="api-gateway"</code></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Log Histogram Visualization -->
+            <div class="px-4 pb-3"
+              v-if="!isChangingContext && currentSourceId && hasValidSource && exploreStore.timeRange">
+              <LogHistogram :time-range="exploreStore.timeRange" :is-loading="isExecutingQuery"
+                :group-by="groupByField === '__none__' ? undefined : groupByField"
+                @zoom-time-range="handleHistogramTimeRangeZoom" @update:timeRange="handleHistogramTimeRangeUpdate" />
+            </div>
+
+            <!-- Results Section -->
+            <div class="flex-1 overflow-hidden flex flex-col border-t mt-2">
+              <!-- Results Area -->
+              <div class="flex-1 overflow-hidden relative bg-background">
+                <!-- Results Table (Render if logs exist OR if loading) -->
+                <template v-if="exploreStore.logs?.length > 0 || isExecutingQuery">
+                  <!-- Render DataTable only if columns are available -->
+                  <DataTable v-if="exploreStore.columns?.length > 0"
+                    :key="`${exploreStore.sourceId}-${exploreStore.activeMode}-${exploreStore.queryId}`"
+                    :columns="exploreStore.columns as any" :data="exploreStore.logs" :stats="exploreStore.queryStats"
+                    :is-loading="isExecutingQuery" :source-id="String(exploreStore.sourceId)"
+                    :team-id="teamsStore.currentTeamId"
+                    :timestamp-field="sourcesStore.currentSourceDetails?._meta_ts_field"
+                    :severity-field="sourcesStore.currentSourceDetails?._meta_severity_field"
+                    :timezone="displayTimezone" :query-fields="queryFields" :regex-highlights="regexHighlights"
+                    :active-mode="activeMode" @drill-down="handleDrillDown" />
+                  <!-- Show loading placeholder if loading but columns aren't ready -->
+                  <div v-else-if="isExecutingQuery"
+                    class="absolute inset-0 flex items-center justify-center bg-background/70 z-10">
+                    <p class="text-muted-foreground animate-pulse">Loading results...</p>
+                  </div>
+                </template>
+
+                <!-- No Results State -->
+                <template v-else-if="!isExecutingQuery && !exploreStore.logs?.length && exploreStore.lastExecutedState">
+                  <div class="h-full flex flex-col items-center justify-center p-10 text-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none"
+                      stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+                      class="text-muted-foreground mb-3">
+                      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path>
+                      <polyline points="14 2 14 8 20 8"></polyline>
+                      <line x1="12" x2="12" y1="18" y2="12"></line>
+                      <line x1="9" x2="15" y1="15" y2="15"></line>
+                    </svg>
+                    <h3 class="text-lg font-medium mb-1">No Logs Found</h3>
+                    <p class="text-sm text-muted-foreground max-w-md">
+                      Your query returned no results for the selected time range. Try adjusting the query or time.
+                    </p>
+                    <Button variant="outline" size="sm" class="mt-4 h-8" @click="openDatePicker">
+                      <CalendarIcon class="h-3.5 w-3.5 mr-2" />
+                      Adjust Timerange
+                    </Button>
+                  </div>
+                </template>
+
+                <!-- Initial State -->
+                <template v-else-if="!isExecutingQuery && !exploreStore.lastExecutedState && canExecuteQuery">
+                  <div class="h-full flex flex-col items-center justify-center p-10 text-center">
+                    <div class="bg-primary/5 p-6 rounded-full mb-4">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+                        class="text-primary">
+                        <circle cx="11" cy="11" r="8"></circle>
+                        <line x1="21" x2="16.65" y1="21" y2="16.65"></line>
+                        <line x1="11" x2="11" y1="8" y2="14"></line>
+                        <line x1="8" x2="14" y1="11" y2="11"></line>
+                      </svg>
+                    </div>
+                    <h3 class="text-xl font-medium mb-2">Ready to Explore</h3>
+                    <p class="text-sm text-muted-foreground max-w-md mb-4">
+                      Enter a query or use the default, then click 'Run' to see logs.
+                    </p>
+                    <Button variant="outline" size="sm" @click="handleQueryExecution"
+                      class="border-primary/20 text-primary hover:bg-primary/5 hover:text-primary hover:border-primary/30">
+                      <Play class="h-3.5 w-3.5 mr-1.5" />
+                      Run default query
+                    </Button>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Save Query Modal -->
+        <SaveQueryModal v-if="showSaveQueryModal" :is-open="showSaveQueryModal" :query-type="exploreStore.activeMode"
+          :edit-data="editQueryData" :query-content="JSON.stringify({
+            sourceId: currentSourceId,
+            limit: exploreStore.limit,
+            content: exploreStore.activeMode === 'logchefql' ? exploreStore.logchefqlCode : exploreStore.rawSql
+          })" @close="showSaveQueryModal = false" @save="handleSaveQuery" @update="handleUpdateQuery" />
       </div>
     </div>
   </KeepAlive>

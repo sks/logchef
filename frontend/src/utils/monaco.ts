@@ -9,6 +9,21 @@ import {
   CharType
 } from "./clickhouse-sql/language";
 
+// Global cache for Monaco models to preserve across navigation
+interface ModelCacheEntry {
+  model: monaco.editor.ITextModel;
+  lastUsed: number;
+}
+
+// Global model cache with source/language specific entries
+const globalModelCache = new Map<string, ModelCacheEntry>();
+
+// Keep track of active editors for proper cleanup and state management
+const activeEditorInstances = new Set<monaco.editor.IStandaloneCodeEditor>();
+
+// Maximum number of models to keep in cache
+const MAX_CACHED_MODELS = 20;
+
 export function getDefaultMonacoOptions(): monaco.editor.IStandaloneEditorConstructionOptions {
   return {
     readOnly: false,
@@ -59,10 +74,6 @@ export function getDefaultMonacoOptions(): monaco.editor.IStandaloneEditorConstr
     // Additional professional touches
     roundedSelection: false, // Use sharp selections
     quickSuggestions: { other: true, comments: false, strings: false }, // Enable quick suggestions
-    // Add padding to the content area for consistent cursor positioning
-    'padding.top': 8,
-    'padding.bottom': 8,
-    'padding.left': 16 // This ensures consistent padding for cursor and content
   };
 }
 
@@ -84,15 +95,16 @@ export function getSingleLineModeOptions(): Partial<monaco.editor.IStandaloneEdi
 // Track initialization state
 let setupComplete = false;
 
+// Initialize Monaco only once
 export function initMonacoSetup() {
   // Skip if already initialized
   if (setupComplete) {
     console.log("Monaco setup already initialized, skipping");
     return;
   }
-  
+
   console.log("Initializing Monaco environment and languages");
-  
+
   // Configure Monaco worker setup (ensure this runs only once)
   if (!window.MonacoEnvironment) {
      window.MonacoEnvironment = {
@@ -101,10 +113,9 @@ export function initMonacoSetup() {
      // Load Monaco configuration
      loader.config({ monaco });
   }
-  
+
   // Mark as initialized
   setupComplete = true;
-
 
   // Define themes - Simplified to avoid styling issues
   monaco.editor.defineTheme("logchef-light", {
@@ -154,6 +165,195 @@ export function initMonacoSetup() {
   if (!monaco.languages.getLanguages().some(lang => lang.id === 'clickhouse-sql')) {
     registerClickhouseSQL();
   }
+}
+
+// Get or create a model from global cache
+export function getOrCreateModel(value: string, language: string, sourceId?: number, key?: string): monaco.editor.ITextModel {
+  // Create a unique cache key
+  const cacheKey = key ?? `${language}-${sourceId ?? 'default'}`;
+
+  // Check if model exists in cache
+  if (globalModelCache.has(cacheKey)) {
+    const entry = globalModelCache.get(cacheKey)!;
+
+    try {
+      // Check if model is disposed - if so, we'll need to recreate it
+      if (entry.model.isDisposed()) {
+        console.log(`Model for ${cacheKey} was disposed, recreating it`);
+        // Create new model since the cached one was disposed
+        const newModel = monaco.editor.createModel(value, language);
+        // Update cache entry
+        globalModelCache.set(cacheKey, {
+          model: newModel,
+          lastUsed: Date.now()
+        });
+        return newModel;
+      }
+
+      // Update last used timestamp for valid model
+      entry.lastUsed = Date.now();
+
+      // Update model content if needed
+      if (entry.model.getValue() !== value) {
+        entry.model.setValue(value);
+      }
+      return entry.model;
+    } catch (e) {
+      console.warn(`Error accessing cached model for ${cacheKey}, recreating it:`, e);
+      // If any error occurs (like model is disposed), create a new one
+      const newModel = monaco.editor.createModel(value, language);
+      // Update cache entry
+      globalModelCache.set(cacheKey, {
+        model: newModel,
+        lastUsed: Date.now()
+      });
+      return newModel;
+    }
+  }
+
+  // Create new model and add to cache
+  const model = monaco.editor.createModel(value, language);
+
+  // Prune cache if needed
+  pruneModelCache();
+
+  // Add new model to cache
+  globalModelCache.set(cacheKey, {
+    model,
+    lastUsed: Date.now()
+  });
+
+  return model;
+}
+
+// Register an editor instance for global management
+export function registerEditorInstance(editor: monaco.editor.IStandaloneCodeEditor) {
+  if (!activeEditorInstances.has(editor)) {
+    activeEditorInstances.add(editor);
+  }
+}
+
+// Unregister an editor instance when fully disposing
+export function unregisterEditorInstance(editor: monaco.editor.IStandaloneCodeEditor) {
+  if (activeEditorInstances.has(editor)) {
+    activeEditorInstances.delete(editor);
+  }
+}
+
+// Safe disposal logic for lightweight editor cleanup
+export function lightweightEditorDisposal(editor: monaco.editor.IStandaloneCodeEditor) {
+  // Don't unregister the editor, just make it invisible and readonly
+  try {
+    // First make it read-only to prevent modifications
+    editor.updateOptions({ readOnly: true });
+
+    // Get model info before hiding the editor
+    const model = editor.getModel();
+    const modelId = model?.id;
+
+    // Make it invisible
+    const domNode = editor.getDomNode();
+    if (domNode) {
+      // Use visibility to maintain layout, not display:none which can cause issues
+      domNode.style.visibility = 'hidden';
+    }
+
+    // Important: Do NOT detach the model from the editor
+    // Just log that we're preserving it
+    console.log(`Lightweight disposal completed, preserved model: ${modelId}`);
+
+    return true;
+  } catch (e) {
+    console.error("Error during lightweight editor disposal:", e);
+    return false;
+  }
+}
+
+// Reactivate a previously deactivated editor
+export function reactivateEditor(editor: monaco.editor.IStandaloneCodeEditor, language: string, content: string, sourceId?: number) {
+  try {
+    // First make the editor visible if it was hidden
+    const domNode = editor.getDomNode();
+    if (domNode) {
+      domNode.style.visibility = 'visible';
+    }
+
+    // Ensure editor is not read-only
+    editor.updateOptions({ readOnly: false });
+
+    // Get the current model
+    let currentModel = editor.getModel();
+
+    // Check if model is null or disposed and needs to be restored
+    if (!currentModel || currentModel.isDisposed()) {
+      // Get a new or cached model using our improved getOrCreateModel
+      const modelKey = `${language}-${sourceId ?? 'default'}`;
+      const model = getOrCreateModel(content, language, sourceId, modelKey);
+
+      // Reattach model to editor
+      editor.setModel(model);
+      console.log(`Reattached model to editor for ${modelKey}`);
+    }
+
+    // Force layout refresh to ensure proper rendering
+    editor.layout();
+    console.log('Editor successfully reactivated with model:', editor.getModel()?.id);
+    return true;
+  } catch (e) {
+    console.error("Error reactivating editor:", e);
+    return false;
+  }
+}
+
+// Prune the model cache when it gets too large
+function pruneModelCache() {
+  if (globalModelCache.size <= MAX_CACHED_MODELS) {
+    return;
+  }
+
+  // Sort entries by last used timestamp
+  const entries = Array.from(globalModelCache.entries())
+    .sort(([, a], [, b]) => a.lastUsed - b.lastUsed);
+
+  // Remove oldest entries until we're under the limit
+  const entriesToRemove = entries.slice(0, globalModelCache.size - MAX_CACHED_MODELS);
+  for (const [key, entry] of entriesToRemove) {
+    try {
+      if (!entry.model.isDisposed()) {
+        entry.model.dispose();
+      }
+    } catch (e) {
+      console.warn(`Error disposing model ${key}:`, e);
+    }
+    globalModelCache.delete(key);
+  }
+
+  console.log(`Pruned ${entriesToRemove.length} models from cache. Cache size: ${globalModelCache.size}`);
+}
+
+// Clean up all Monaco resources when app is unloaded
+export function disposeAllMonacoResources() {
+  // Dispose all active editors
+  for (const editor of activeEditorInstances) {
+    try {
+      editor.dispose();
+    } catch (e) {
+      console.warn("Error disposing editor:", e);
+    }
+  }
+  activeEditorInstances.clear();
+
+  // Dispose all cached models
+  for (const [key, entry] of globalModelCache.entries()) {
+    try {
+      if (!entry.model.isDisposed()) {
+        entry.model.dispose();
+      }
+    } catch (e) {
+      console.warn(`Error disposing model ${key}:`, e);
+    }
+  }
+  globalModelCache.clear();
 }
 
 function registerLogchefQL() {

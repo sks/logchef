@@ -152,7 +152,11 @@ import { useRoute, useRouter } from 'vue-router';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
-import { initMonacoSetup, getDefaultMonacoOptions, getSingleLineModeOptions } from "@/utils/monaco";
+import {
+  initMonacoSetup, getDefaultMonacoOptions, getSingleLineModeOptions,
+  getOrCreateModel, registerEditorInstance, unregisterEditorInstance,
+  lightweightEditorDisposal, reactivateEditor
+} from "@/utils/monaco";
 import { Parser as LogchefQLParser, State as LogchefQLState, Operator as LogchefQLOperator, VALID_KEY_VALUE_OPERATORS as LogchefQLValidOperators, isNumeric } from "@/utils/logchefql";
 import { validateLogchefQLWithDetails } from "@/utils/logchefql/api"; // Import detailed validation
 import { validateSQLWithDetails, SQL_KEYWORDS, CLICKHOUSE_FUNCTIONS, SQL_TYPES } from "@/utils/clickhouse-sql";
@@ -240,12 +244,35 @@ const monacoOptions = reactive(getDefaultMonacoOptions());
 const handleMount = (editor: MonacoEditor) => {
   if (isDisposing.value) return; // Prevent setup if disposing
 
+  console.log("QueryEditor: Mounting editor");
   editorRef.value = editor;
   initMonacoSetup(); // Ensure themes/languages are registered (runs once internally)
 
-  // Use cached model if available
-  const model = getOrCreateModel(editorContent.value, props.activeMode);
-  editor.setModel(model);
+  // Register editor with global management system
+  registerEditorInstance(editor);
+
+  // Create a unique model key for this editor instance
+  const modelKey = `${props.activeMode}-${props.sourceId}`;
+  console.log(`Creating/reusing model with key: ${modelKey}`);
+
+  try {
+    // Use cached model if available with sourceId as identifier
+    const model = getOrCreateModel(
+      editorContent.value,
+      props.activeMode,
+      props.sourceId,
+      modelKey
+    );
+
+    // Set the model to the editor
+    editor.setModel(model);
+    console.log(`Model set successfully: ${model.id}`);
+  } catch (e) {
+    console.error("Error setting up editor model:", e);
+    // Create a fallback model directly if cache retrieval fails
+    const fallbackModel = monaco.editor.createModel(editorContent.value, props.activeMode);
+    editor.setModel(fallbackModel);
+  }
 
   // Check if we should be in read-only mode
   const isLoading = exploreStore.isLoadingOperation('executeQuery');
@@ -270,7 +297,6 @@ const handleMount = (editor: MonacoEditor) => {
   );
 
   // Add minimal keyboard event listener that only prevents new lines in LogchefQL mode
-  // without executing the query or interfering with autocomplete
   const domNode = editor.getDomNode();
   if (domNode) {
     const keyHandler = (e: KeyboardEvent) => {
@@ -663,31 +689,36 @@ const focusEditor = (revealLastPosition = false) => {
   });
 };
 
-
-// Model cache to preserve models between mounts
-const modelCache = new Map<string, monaco.editor.ITextModel>();
-
-// Get or create a model from cache
-const getOrCreateModel = (value: string, language: string) => {
-  const key = `${language}-${props.sourceId}`; // Unique key per source
-  if (modelCache.has(key)) {
-    const model = modelCache.get(key)!;
-    // Update model content if needed
-    if (model.getValue() !== value) {
-      model.setValue(value);
-    }
-    return model;
-  }
-  const model = monaco.editor.createModel(value, language);
-  modelCache.set(key, model);
-  return model;
-};
-
 // --- Disposal ---
 const safelyDisposeEditor = (fullDisposal = false) => {
   if (isDisposing.value) return;
   isDisposing.value = true;
-  console.log('QueryEditor: Starting disposal... (full disposal:', fullDisposal, ')');
+
+  // If this is a lightweight disposal (deactivation), use our optimized method
+  if (!fullDisposal) {
+    const editor = editorRef.value;
+    if (editor) {
+      console.log('QueryEditor: Performing lightweight disposal (deactivation)');
+      lightweightEditorDisposal(editor);
+
+      // Dispose any active disposables except the editor itself
+      [...activeDisposables.value].forEach(disposable => {
+        try {
+          disposable.dispose();
+        } catch (e) { console.warn("Error disposing resource:", e); }
+      });
+      activeDisposables.value = [];
+
+      // Release the flag after lightweight disposal
+      setTimeout(() => {
+        isDisposing.value = false;
+      }, 50);
+    }
+    return;
+  }
+
+  // Full disposal for unmount
+  console.log('QueryEditor: Starting full disposal...');
 
   // Dispose the active completion provider
   if (activeCompletionProvider.value) {
@@ -706,50 +737,28 @@ const safelyDisposeEditor = (fullDisposal = false) => {
   activeDisposables.value = [];
 
   const editor = editorRef.value;
-  
-  if (fullDisposal) {
-    editorRef.value = null; // Clear ref immediately
+  if (editor) {
+    // Unregister from global tracking
+    unregisterEditorInstance(editor);
 
-    // Use a minimal timeout to ensure disposal happens after any pending rendering/updates
+    // The model is now handled by the global cache, so we don't need to dispose it
+    // Just detach it from this editor instance
+    editor.setModel(null);
+
+    // Don't dispose the editor immediately to avoid race conditions
     setTimeout(() => {
       if (editor) {
         try {
-          const model = editor.getModel();
-          if (model && !model.isDisposed()) {
-            // Detach model before disposing editor
-            editor.setModel(null);
-            // Don't dispose the model if we're caching it
-            if (!modelCache.has(`${props.activeMode}-${props.sourceId}`)) {
-              model.dispose();
-            }
-          }
-          editor.dispose(); // Dispose the editor instance itself
+          editor.dispose();
           console.log('QueryEditor: Editor instance fully disposed.');
         } catch (e) {
           console.error("Error during editor instance disposal:", e);
         }
       }
-    }, 50); // Small delay
-  } else {
-    // Lightweight disposal - just hide and make read-only
-    if (editor) {
-      try {
-        const domNode = editor.getDomNode();
-        if (domNode) {
-          domNode.style.display = 'none';
-        }
-        editor.updateOptions({ readOnly: true });
-        console.log('QueryEditor: Editor instance preserved (lightweight disposal).');
-      } catch (e) {
-        console.error("Error during lightweight editor disposal:", e);
-      }
-    }
-    
-    // Release the flag after lightweight disposal
-    setTimeout(() => {
-      isDisposing.value = false;
     }, 50);
   }
+
+  editorRef.value = null; // Clear ref
 };
 
 // Handle full disposal on unmount
@@ -767,21 +776,30 @@ onDeactivated(() => {
 
 // Handle reactivation
 onActivated(() => {
-  console.log('QueryEditor: Activated');
+  console.log('QueryEditor: Component activated');
   if (editorRef.value) {
-    const domNode = editorRef.value.getDomNode();
-    if (domNode) {
-      domNode.style.display = 'block';
-    }
-    editorRef.value.updateOptions({ readOnly: false });
-    editorRef.value.layout();
-    
-    // Refresh the editor with current content
+    // Use enhanced reactivation that properly handles models
+    reactivateEditor(
+      editorRef.value,
+      props.activeMode,
+      editorContent.value,
+      props.sourceId
+    );
+
+    // After reactivation, refresh the editor state
     nextTick(() => {
       if (editorRef.value) {
-        editorRef.value.focus();
+        // Force a layout calculation
+        editorRef.value.layout();
+
+        // Try to focus the editor
+        focusEditor(false); // Don't move cursor to end
+        console.log('QueryEditor: Editor reactivated and focused');
       }
     });
+  } else {
+    // If there's no editor reference, the component might be mounting for the first time
+    console.log('QueryEditor: No editor ref available on activation, will be created during mount');
   }
 });
 
