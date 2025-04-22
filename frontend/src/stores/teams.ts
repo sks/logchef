@@ -13,7 +13,8 @@ import type { Source } from "@/api/sources";
 import { reactive } from "vue";
 import type {
   APIErrorResponse,
-  APIResponse
+  APIResponse,
+  APISuccessResponse
 } from "@/api/types";
 import { useToast } from "@/components/ui/toast/use-toast";
 import { useAuthStore } from "./auth";
@@ -27,6 +28,7 @@ interface TeamsState {
   adminTeams: TeamWithMemberCount[];
   currentTeamId: number | null;
   teamSourcesMap: Record<number, Source[]>;
+  teamMembersMap: Record<number, TeamMember[]>;
 }
 
 export const useTeamsStore = defineStore("teams", () => {
@@ -35,6 +37,7 @@ export const useTeamsStore = defineStore("teams", () => {
     adminTeams: [],
     currentTeamId: null,
     teamSourcesMap: {},
+    teamMembersMap: {},
   });
 
   // Access auth store for current user ID
@@ -92,27 +95,20 @@ export const useTeamsStore = defineStore("teams", () => {
     )[0];
   });
 
-  // Store team members in state
-  const teamMembersMap = reactive(new Map<number, TeamMember[]>());
-
   // Get team members by team ID
   const getTeamMembersByTeamId = computed(() => (teamId: number) => {
-    return teamMembersMap.get(teamId) || [];
+    return state.data.value.teamMembersMap[teamId] || [];
   });
-
-  // Store team sources in state
-  const teamSourcesMap = reactive(new Map<number, Source[]>());
 
   // Get team sources by team ID
   const getTeamSourcesByTeamId = computed(() => (teamId: number) => {
-    return teamSourcesMap.get(teamId) || [];
+    return state.data.value.teamSourcesMap[teamId] || [];
   });
 
   // Clear store state - helpful when switching contexts
   function clearState() {
     state.data.value.currentTeamId = null;
-    teamMembersMap.clear();
-    teamSourcesMap.clear();
+    state.data.value.teamMembersMap = {};
     state.data.value.teamSourcesMap = {};
   }
 
@@ -213,23 +209,13 @@ export const useTeamsStore = defineStore("teams", () => {
           if (response) {
             // Create the team object with proper defaults
             const newTeam: TeamWithMemberCount = {
-              ...response,
-              id: response.id,
-              name: response.name,
-              description: response.description,
-              created_by: response.created_by || '',
-              created_at: response.created_at || '',
-              updated_at: response.updated_at || '',
+              ...response as Team, // Cast to ensure TS understands this has Team properties
               memberCount: 0,
               member_count: 0
             };
 
             // Add to admin teams only
             state.data.value.adminTeams.push(newTeam);
-
-            // IMPORTANT: Do NOT add to userTeams here
-            // This ensures only teams the user is actually a member of
-            // will appear in the teams dropdown in LogExplorer
 
             // If we're in admin view and no team is selected, select the newly created one
             if (!state.data.value.currentTeamId && state.data.value.adminTeams.length > 0) {
@@ -289,13 +275,14 @@ export const useTeamsStore = defineStore("teams", () => {
         operationKey: `updateTeam-${teamId}`,
         onSuccess: (response) => {
           if (response) {
+            const teamResponse = response as Team;
             // Update in both user and admin teams if they exist
             const userIndex = state.data.value.userTeams.findIndex(t => t.id === teamId);
             if (userIndex >= 0) {
               state.data.value.userTeams[userIndex] = {
                 ...state.data.value.userTeams[userIndex],
-                ...response,
-                memberCount: response.member_count || state.data.value.userTeams[userIndex].memberCount
+                ...teamResponse,
+                memberCount: teamResponse.member_count || state.data.value.userTeams[userIndex].memberCount
               };
             }
 
@@ -303,8 +290,8 @@ export const useTeamsStore = defineStore("teams", () => {
             if (adminIndex >= 0) {
               state.data.value.adminTeams[adminIndex] = {
                 ...state.data.value.adminTeams[adminIndex],
-                ...response,
-                memberCount: response.member_count || state.data.value.adminTeams[adminIndex].memberCount
+                ...teamResponse,
+                memberCount: teamResponse.member_count || state.data.value.adminTeams[adminIndex].memberCount
               };
             }
           }
@@ -339,12 +326,8 @@ export const useTeamsStore = defineStore("teams", () => {
           }
 
           // Clean up related data
-          teamMembersMap.delete(teamId);
-          teamSourcesMap.delete(teamId);
-          if (state.data.value.teamSourcesMap?.[teamId]) {
-            const { [teamId]: _, ...rest } = state.data.value.teamSourcesMap;
-            state.data.value.teamSourcesMap = rest;
-          }
+          delete state.data.value.teamMembersMap[teamId];
+          delete state.data.value.teamSourcesMap[teamId];
         }
       });
     });
@@ -356,12 +339,13 @@ export const useTeamsStore = defineStore("teams", () => {
         const response = await teamsApi.listTeamMembers(teamId);
 
         // Extract members data from the response
-        const members = response.status === 'success' && response.data ? response.data : [];
+        if (response.status === 'success' && response.data) {
+          // Store in our map for later use
+          state.data.value.teamMembersMap[teamId] = response.data;
+          return { success: true, data: response.data };
+        }
 
-        // Store in our map for later use
-        teamMembersMap.set(teamId, members);
-
-        return { success: true, data: members };
+        return { success: false, error: { message: "Failed to load team members" } as APIErrorResponse };
       } catch (error) {
         return state.handleError(error as Error, `listTeamMembers-${teamId}`);
       }
@@ -390,15 +374,6 @@ export const useTeamsStore = defineStore("teams", () => {
         successMessage: "Member added successfully",
         operationKey: `addTeamMember-${teamId}`,
         onSuccess: async (response) => {
-          // If we get back the actual new member, add it directly to our member map
-          if (response) {
-            const currentMembers = teamMembersMap.get(teamId) || [];
-            // Only add if not already in the list
-            if (!currentMembers.find(m => m.user_id === data.user_id)) {
-              teamMembersMap.set(teamId, [...currentMembers, response]);
-            }
-          }
-
           // Update member count in both team lists
           const updateMemberCount = (team: TeamWithMemberCount) => {
             team.memberCount = (team.memberCount || 0) + 1;
@@ -411,10 +386,8 @@ export const useTeamsStore = defineStore("teams", () => {
           const adminTeam = state.data.value.adminTeams.find(t => t.id === teamId);
           if (adminTeam) updateMemberCount(adminTeam);
 
-          // If we didn't get the full member info, refresh the list
-          if (!response) {
-            await listTeamMembers(teamId);
-          }
+          // Refresh the members list to ensure we have the latest data
+          await listTeamMembers(teamId);
 
           // Check if the current user is the one being added to the team
           // If so, refresh the user's teams list to update the UI
@@ -451,11 +424,11 @@ export const useTeamsStore = defineStore("teams", () => {
         operationKey: `removeTeamMember-${teamId}-${userId}`,
         onSuccess: async () => {
           // Remove member from our cache directly
-          const currentMembers = teamMembersMap.get(teamId) || [];
-          teamMembersMap.set(
-            teamId,
-            currentMembers.filter(m => m.user_id !== userId)
-          );
+          if (state.data.value.teamMembersMap[teamId]) {
+            state.data.value.teamMembersMap[teamId] = state.data.value.teamMembersMap[teamId].filter(
+              m => m.user_id !== userId
+            );
+          }
 
           // Update member count in both team lists
           const updateMemberCount = (team: TeamWithMemberCount) => {
@@ -498,18 +471,13 @@ export const useTeamsStore = defineStore("teams", () => {
         const response = await teamsApi.listTeamSources(teamId);
 
         // Get the sources array from the response
-        const sources = response.status === 'success' && response.data ? response.data : [];
+        if (response.status === 'success' && response.data) {
+          // Store in our map
+          state.data.value.teamSourcesMap[teamId] = response.data;
+          return { success: true, data: response.data };
+        }
 
-        // Cache the sources in both maps
-        teamSourcesMap.set(teamId, sources);
-
-        // Also keep the old cache for backward compatibility
-        state.data.value.teamSourcesMap = {
-          ...state.data.value.teamSourcesMap,
-          [teamId]: sources
-        };
-
-        return { success: true, data: sources };
+        return { success: false, error: { message: "Failed to load team sources" } as APIErrorResponse };
       } catch (error) {
         return state.handleError(error as Error, `listTeamSources-${teamId}`);
       }
@@ -522,7 +490,7 @@ export const useTeamsStore = defineStore("teams", () => {
         apiCall: () => teamsApi.addTeamSource(teamId, sourceId),
        successMessage: "Source added successfully",
        operationKey: `addTeamSource-${teamId}-${sourceId}`,
-       onSuccess: async (response) => {
+       onSuccess: async () => {
          // Always refresh the list after successfully adding a source
          // to ensure we have the complete source object with connection details.
          await listTeamSources(teamId);
@@ -538,16 +506,12 @@ export const useTeamsStore = defineStore("teams", () => {
         successMessage: "Source removed successfully",
         operationKey: `removeTeamSource-${teamId}-${sourceId}`,
         onSuccess: async () => {
-          // Remove source from our cache directly
-          const currentSources = teamSourcesMap.get(teamId) || [];
-          const updatedSources = currentSources.filter(s => s.id !== sourceId);
-          teamSourcesMap.set(teamId, updatedSources);
-
-          // Update the old cache too for backward compatibility
-          state.data.value.teamSourcesMap = {
-            ...state.data.value.teamSourcesMap,
-            [teamId]: updatedSources
-          };
+          // Update the cache if we have it
+          if (state.data.value.teamSourcesMap[teamId]) {
+            state.data.value.teamSourcesMap[teamId] = state.data.value.teamSourcesMap[teamId].filter(
+              s => s.id !== sourceId
+            );
+          }
         }
       });
     });
@@ -556,11 +520,7 @@ export const useTeamsStore = defineStore("teams", () => {
   // Get team source IDs - helper method for filtering
   async function getTeamSourceIds(teamId: number) {
     // Check if we already have the sources cached
-    if (teamSourcesMap.has(teamId) && teamSourcesMap.get(teamId)?.length > 0) {
-      return teamSourcesMap.get(teamId)?.map(source => source.id) || [];
-    }
-
-    if (state.data.value.teamSourcesMap?.[teamId]?.length > 0) {
+    if (state.data.value.teamSourcesMap[teamId]?.length > 0) {
       return state.data.value.teamSourcesMap[teamId].map(source => source.id);
     }
 
@@ -581,11 +541,7 @@ export const useTeamsStore = defineStore("teams", () => {
     state.data.value.adminTeams = state.data.value.adminTeams.filter(t => t.id !== teamId);
 
     // Remove team sources from cache
-    teamSourcesMap.delete(teamId);
-    if (state.data.value.teamSourcesMap?.[teamId]) {
-      const { [teamId]: _, ...rest } = state.data.value.teamSourcesMap;
-      state.data.value.teamSourcesMap = rest;
-    }
+    delete state.data.value.teamSourcesMap[teamId];
 
     // Reset current team if it was the invalidated one
     if (state.data.value.currentTeamId === teamId) {
@@ -597,7 +553,7 @@ export const useTeamsStore = defineStore("teams", () => {
     }
 
     // Clear team members cache
-    teamMembersMap.delete(teamId);
+    delete state.data.value.teamMembersMap[teamId];
   }
 
   // Get sources not in team (for filtering in add source dialog)

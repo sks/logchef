@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { computed } from 'vue'
+import { onMounted, ref, computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -14,7 +13,8 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Plus, Trash2, Settings } from 'lucide-vue-next'
+import { Input } from '@/components/ui/input'
+import { Plus, Trash2, Settings, Search, Loader2 } from 'lucide-vue-next'
 import { useRouter } from 'vue-router'
 import {
     Table,
@@ -24,27 +24,60 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table'
-import { format } from 'date-fns'
 import { type Team } from '@/api/teams'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import AddTeam from './AddTeam.vue'
 import { useTeamsStore } from '@/stores/teams'
+import { useToast } from '@/components/ui/toast/use-toast'
+import { formatDate } from '@/utils/format'
 
 const router = useRouter()
+const { toast } = useToast()
 const teamsStore = useTeamsStore()
-const { isLoading, error: teamsError } = storeToRefs(teamsStore)
-// Directly use adminTeams for this admin-specific view
-const teams = computed(() => {
-    // Map adminTeams to include defaults if needed, similar to getTeamsWithDefaults
-    return teamsStore.adminTeams.map(team => ({
-      ...team,
-      name: team.name || `Team ${team.id}`,
-      description: team.description || '',
-      memberCount: team.member_count || 0 // Use member_count from API response
-    }));
-});
+
+// Improved loading state
+const isLoading = ref(true)
 const showDeleteDialog = ref(false)
 const teamToDelete = ref<Team | null>(null)
+const searchQuery = ref('')
+
+// Filter teams based on search query
+const filteredTeams = computed(() => {
+    if (!searchQuery.value.trim()) {
+        return teamsWithDefaults.value;
+    }
+
+    const query = searchQuery.value.toLowerCase();
+    return teamsWithDefaults.value.filter(team =>
+        team.name.toLowerCase().includes(query) ||
+        (team.description && team.description.toLowerCase().includes(query))
+    );
+});
+
+// Get processed teams with default values
+const teamsWithDefaults = computed(() => {
+    // Map adminTeams to include defaults if needed, similar to getTeamsWithDefaults
+    return teamsStore.adminTeams.map(team => ({
+        ...team,
+        name: team.name || `Team ${team.id}`,
+        description: team.description || '',
+        memberCount: team.member_count || 0
+    }));
+});
+
+// Show empty state only if not loading and no teams after search
+const showEmptyState = computed(() =>
+    !isLoading.value &&
+    filteredTeams.value.length === 0 &&
+    !searchQuery.value
+);
+
+// Show not found state when search has no results
+const showNotFoundState = computed(() =>
+    !isLoading.value &&
+    filteredTeams.value.length === 0 &&
+    searchQuery.value.trim() !== ''
+);
 
 const handleDelete = (team: Team) => {
     teamToDelete.value = team
@@ -54,25 +87,61 @@ const handleDelete = (team: Team) => {
 const confirmDelete = async () => {
     if (!teamToDelete.value) return
 
-    await teamsStore.deleteTeam(teamToDelete.value.id)
+    try {
+        const result = await teamsStore.deleteTeam(teamToDelete.value.id)
 
-    // Reset UI state
-    showDeleteDialog.value = false
-    teamToDelete.value = null
+        if (result.success) {
+            toast({
+                title: 'Team Deleted',
+                description: `Team "${teamToDelete.value.name}" has been deleted`,
+                variant: 'default'
+            })
+        }
+
+        // Reset UI state
+        showDeleteDialog.value = false
+        teamToDelete.value = null
+    } catch (error) {
+        console.error('Error deleting team:', error)
+        toast({
+            title: 'Error',
+            description: 'Failed to delete team. Please try again.',
+            variant: 'destructive'
+        })
+    }
 }
 
-const handleTeamCreated = () => {
-    // No need to manually reload - the store already adds the new team
-    console.log('Team created successfully');
+const handleTeamCreated = (teamId?: number) => {
+    // Show success message
+    toast({
+        title: 'Team Created',
+        description: 'Team has been created successfully',
+        variant: 'default'
+    })
+
+    // Reset search to ensure the new team is visible
+    searchQuery.value = ''
+}
+
+const loadTeams = async () => {
+    try {
+        isLoading.value = true
+        await teamsStore.loadAdminTeams(true)
+    } catch (error) {
+        console.error('Error loading teams:', error)
+        toast({
+            title: 'Error',
+            description: 'Failed to load teams. Please try refreshing the page.',
+            variant: 'destructive'
+        })
+    } finally {
+        isLoading.value = false
+    }
 }
 
 onMounted(() => {
-    // Use loadAdminTeams for admin view
-    teamsStore.loadAdminTeams(true)
+    loadTeams()
 })
-
-// Import formatDate from utils
-import { formatDate } from '@/utils/format'
 </script>
 
 <template>
@@ -91,17 +160,26 @@ import { formatDate } from '@/utils/format'
             </CardHeader>
             <CardContent>
                 <div class="space-y-4">
-                    <!-- Search input -->
-                    <div class="relative">
-                        <input type="text" placeholder="Search teams..."
-                            class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+                    <!-- Enhanced search input -->
+                    <div class="relative flex items-center">
+                        <Search class="absolute left-3 h-4 w-4 text-muted-foreground" />
+                        <Input v-model="searchQuery" type="text" placeholder="Search teams by name or description..."
+                            class="pl-9 w-full" />
                     </div>
 
-                    <div v-if="isLoading" class="text-center py-4">
-                        Loading teams...
+                    <!-- Loading State -->
+                    <div v-if="isLoading" class="flex flex-col items-center justify-center py-10">
+                        <Loader2 class="h-8 w-8 animate-spin text-primary mb-2" />
+                        <p class="text-muted-foreground">Loading teams...</p>
                     </div>
-                    <div v-else-if="teams.length === 0" class="rounded-lg border p-4 text-center">
-                        <p class="text-muted-foreground mb-4">No teams found</p>
+
+                    <!-- Empty State -->
+                    <div v-else-if="showEmptyState" class="rounded-lg border p-6 text-center">
+                        <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-muted mb-4">
+                            <Plus class="h-6 w-6" />
+                        </div>
+                        <h3 class="text-lg font-semibold mb-1">No teams found</h3>
+                        <p class="text-muted-foreground mb-4">Create your first team to get started</p>
                         <AddTeam @team-created="handleTeamCreated">
                             <Button>
                                 <Plus class="mr-2 h-4 w-4" />
@@ -109,6 +187,17 @@ import { formatDate } from '@/utils/format'
                             </Button>
                         </AddTeam>
                     </div>
+
+                    <!-- Search Not Found State -->
+                    <div v-else-if="showNotFoundState" class="rounded-lg border p-6 text-center">
+                        <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-muted/50 mb-3">
+                            <Search class="h-5 w-5 text-muted-foreground" />
+                        </div>
+                        <h3 class="text-lg font-semibold mb-1">No results found</h3>
+                        <p class="text-muted-foreground">No teams match your search criteria</p>
+                    </div>
+
+                    <!-- Teams Table -->
                     <div v-else>
                         <Table>
                             <TableHeader>
@@ -121,14 +210,16 @@ import { formatDate } from '@/utils/format'
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                <TableRow v-for="team in teams" :key="team.id">
+                                <TableRow v-for="team in filteredTeams" :key="team.id">
                                     <TableCell>
                                         <router-link :to="{ name: 'TeamSettings', params: { id: String(team.id) } }"
                                             class="font-medium hover:underline flex items-center gap-2">
                                             {{ team.name }}
                                         </router-link>
                                     </TableCell>
-                                    <TableCell>{{ team.description }}</TableCell>
+                                    <TableCell>
+                                        <span class="line-clamp-1">{{ team.description || 'No description' }}</span>
+                                    </TableCell>
                                     <TableCell>{{ team.memberCount }}</TableCell>
                                     <TableCell>{{ formatDate(team.created_at) }}</TableCell>
                                     <TableCell class="text-right">
