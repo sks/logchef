@@ -1612,8 +1612,8 @@ const handleQueryExecution = async () => {
             <!-- Log Histogram Visualization -->
             <div class="px-4 pb-3"
               v-if="!isChangingContext && currentSourceId && hasValidSource && exploreStore.timeRange">
-              <LogHistogram :time-range="exploreStore.timeRange" :is-loading="isExecutingQuery"
-                :group-by="groupByField === '__none__' ? undefined : groupByField"
+              <LogHistogram :key="`histogram-${exploreStore.sourceId}`" :time-range="exploreStore.timeRange"
+                :is-loading="isExecutingQuery" :group-by="groupByField === '__none__' ? undefined : groupByField"
                 @zoom-time-range="handleHistogramTimeRangeZoom" @update:timeRange="handleHistogramTimeRangeUpdate" />
             </div>
 

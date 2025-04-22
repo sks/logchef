@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, watch, computed, nextTick } from 'vue';
+import { ref, onMounted, onBeforeUnmount, watch, computed, nextTick, onActivated, onDeactivated } from 'vue';
 import { useColorMode } from '@vueuse/core';
 const isMounted = ref(true);
 import { toCalendarDateTime, CalendarDateTime } from '@internationalized/date';
@@ -1206,6 +1206,45 @@ onBeforeUnmount(() => {
         chart.dispose();
         chart = null;
     }
+});
+
+// Add onActivated and onDeactivated lifecycle hooks
+onActivated(async () => {
+    console.log("LogHistogram: Component activated");
+    isMounted.value = true;
+
+    // Wait for DOM to be fully rendered before reinitializing
+    await nextTick();
+
+    try {
+        if (!chart && chartRef.value) {
+            // If chart was disposed, reinitialize it
+            console.log("LogHistogram: Initializing chart on activation");
+            await initChart();
+
+            // Fetch data again if we have a valid context
+            if (hasValidSource.value && currentSourceId.value && exploreStore.lastExecutionTimestamp) {
+                console.log('LogHistogram: Reactivated - fetching data');
+                lastProcessedTimestamp.value = exploreStore.lastExecutionTimestamp;
+                await fetchHistogramData();
+            }
+        } else if (chart) {
+            // If chart still exists, resize it to fit container and refresh
+            console.log("LogHistogram: Resizing existing chart on activation");
+            chart.resize();
+
+            // Force redraw with current data
+            updateChartOptions();
+        }
+    } catch (e) {
+        console.error('Error during histogram reactivation:', e);
+    }
+});
+
+onDeactivated(() => {
+    console.log("LogHistogram: Component deactivated");
+    // Don't dispose the chart or set isMounted to false
+    // We want to keep the chart instance alive for faster reactivation
 });
 </script>
 
