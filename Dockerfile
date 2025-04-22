@@ -12,7 +12,7 @@ RUN apt-get update
 # Install necessary dependencies
 ENV NODE_VERSION=23.11.0
 ENV PNPM_VERSION=10.7.1
-ENV SQLC_VERSION=1.28.0
+ENV SQLC_VERSION=1.29.0
 RUN apt-get install -y curl wget xz-utils libsqlite3-dev \
     && rm -rf /var/lib/apt/lists/*
 

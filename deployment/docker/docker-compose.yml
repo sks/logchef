@@ -3,11 +3,12 @@ services:
     image: mr-karan/logchef:latest-amd64
     container_name: logchef
     restart: on-failure
-    ports:
-      - "8125:8125"
+    # Port 8125 is only needed internally by Caddy
+    # ports:
+    #  - "8125:8125"
     configs:
       - source: logchef_config
-        target: /app/config.toml
+        target: /etc/logchef/config.toml
         mode: 0444
     depends_on:
       clickhouse:
@@ -106,8 +107,9 @@ services:
     depends_on:
       logchef:
         condition: service_healthy
-    ports:
-      - "8686:8686"
+    # Port 8686 is not needed for this internal demo setup
+    # ports:
+    #   - "8686:8686"
     command: ["-c", "/etc/vector/vector.toml"]
     networks:
       - logchef_net
@@ -143,8 +145,8 @@ configs:
 
       client_id = "logchef"
       client_secret = "logchef-secret"
-      # Browser-facing redirect URL
-      redirect_url = "http://localhost:8125/api/v1/auth/callback"
+      # Browser-facing redirect URL (this should match the Caddy host)
+      redirect_url = "http://localhost:80/api/v1/auth/callback"
       scopes = ["openid", "email", "profile"]
 
       [auth]
@@ -176,7 +178,7 @@ configs:
           }
 
           # Block non-GET requests to admin endpoints in demo mode
-          handle_path /api/v1/admin/* {
+          handle /api/v1/admin/* {
               # Block non-GET methods for admin endpoints
               @block_methods {
                   method POST PUT DELETE PATCH
@@ -188,8 +190,7 @@ configs:
               reverse_proxy logchef:8125
           }
 
-          # Handle all other API requests
-          handle_path /api/v1/* {
+          handle /api/v1/* {
               reverse_proxy logchef:8125
           }
 
@@ -221,7 +222,7 @@ configs:
       staticClients:
         - id: logchef
           redirectURIs:
-            - "http://localhost:8125/api/v1/auth/callback"
+            - "http://localhost:80/api/v1/auth/callback"
           name: "LogChef"
           secret: logchef-secret
 

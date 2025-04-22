@@ -1,8 +1,7 @@
 services:
-    clickhouse:
-        image: clickhouse/clickhouse-server:24.8.4
+    clickhouse-local:
+        image: clickhouse/clickhouse-server:latest
         user: '101:101'
-        container_name: clickhouse
         hostname: clickhouse
         restart: on-failure
         ports:
@@ -21,7 +20,7 @@ services:
         cap_add:
             - SYS_NICE
             - IPC_LOCK
-    dex:
+    dex-local:
         image: dexidp/dex:v2.35.3
         ports:
         - "5556:5556"
