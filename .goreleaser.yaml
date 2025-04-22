@@ -6,7 +6,6 @@ env:
   - GO111MODULE=on
   - CGO_ENABLED=0
   - GITHUB_ORG=mr-karan
-  - DOCKER_ORG=mr-karan
 
 before:
   hooks:
@@ -46,8 +45,6 @@ dockers:
     goos: linux
     goarch: amd64
     image_templates:
-      - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:latest-amd64"
-      - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Tag }}-amd64"
       - "ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:latest-amd64"
       - "ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Tag }}-amd64"
     build_flag_templates:
@@ -67,8 +64,6 @@ dockers:
     goos: linux
     goarch: arm64
     image_templates:
-      - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:latest-arm64v8"
-      - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Tag }}-arm64v8"
       - "ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:latest-arm64v8"
       - "ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Tag }}-arm64v8"
     build_flag_templates:
@@ -85,14 +80,6 @@ dockers:
       - config.toml
 
 docker_manifests:
-  - name_template: "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:latest"
-    image_templates:
-      - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:latest-amd64"
-      - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:latest-arm64v8"
-  - name_template: "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Tag }}"
-    image_templates:
-      - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Tag }}-amd64"
-      - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Tag }}-arm64v8"
   - name_template: ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:latest
     image_templates:
       - ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:latest-amd64
