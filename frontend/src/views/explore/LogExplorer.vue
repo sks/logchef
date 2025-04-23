@@ -271,6 +271,7 @@ const queryEditorRef = ref<ComponentPublicInstance<{
 }> | null>(null);
 const isLoadingQuery = ref(false)
 const editQueryData = ref<SavedTeamQuery | null>(null)
+const initialQueryExecuted = ref(false); // Flag to prevent multiple initial executions
 
 // Group by field with computed default value based on severity field
 const groupByField = computed({
@@ -420,9 +421,13 @@ const displayTimezone = computed(() =>
 // Combined error display
 const displayError = computed(() => queryError.value || exploreStore.error?.message)
 
-// Watch for initialization completion to run initial query and load source details
+// Watch for initialization completion to run initial query and load source details, ensuring it runs only once
 watch(isInitializing, async (initializing, prevInitializing) => {
-  if (prevInitializing && !initializing) {
+  if (prevInitializing && !initializing && !initialQueryExecuted.value) {
+    // Mark that the initial query execution is starting
+    initialQueryExecuted.value = true;
+    console.log("LogExplorer: Running initial query execution logic.");
+
     // If we have a valid source ID after initialization, load its details
     if (currentSourceId.value && currentSourceId.value > 0) {
       const sourceExists = availableSources.value.some(source => source.id === currentSourceId.value);
@@ -1212,22 +1217,7 @@ const handleQueryExecution = async () => {
   }
 };
 
-// Watch for query execution to preserve relative time
-watch(() => exploreStore.lastExecutionTimestamp, () => {
-  // Check if we need to restore the selected relative time
-  // This ensures it's not lost during query execution
-  const relativeTimeFromUrl = currentRoute.query.relativeTime as string | undefined;
-  if (relativeTimeFromUrl && !exploreStore.selectedRelativeTime) {
-    // Re-apply the relative time setting if it was lost
-    console.log('Restoring relative time from URL after query execution:', relativeTimeFromUrl);
-    exploreStore.setRelativeTimeRange(relativeTimeFromUrl);
-
-    // Make sure URL parameters get synced correctly
-    nextTick(() => {
-      syncUrlFromState();
-    });
-  }
-});
+// Removed redundant watcher for lastExecutionTimestamp - relative time restoration is now handled in explore.ts executeQuery onSuccess/onError
 </script>
 
 <template>

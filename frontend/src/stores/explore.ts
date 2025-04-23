@@ -466,9 +466,10 @@ export const useExploreStore = defineStore("explore", () => {
               }
               state.data.value.lastExecutionTimestamp = Date.now(); // Set timestamp on success
 
-              // Restore the relative time if it was set before
+              // Restore the relative time if it was set before execution
               if (relativeTime) {
-                state.data.value.selectedRelativeTime = relativeTime;
+                // Use setRelativeTimeRange to ensure both relative string and absolute range are updated
+                setRelativeTimeRange(relativeTime);
               }
           } else {
               // Query was successful but returned no logs or null data
@@ -494,9 +495,10 @@ export const useExploreStore = defineStore("explore", () => {
       if (!response.success && state.data.value.lastExecutionTimestamp === null) {
           state.data.value.lastExecutionTimestamp = Date.now();
 
-          // Restore the relative time if it was set before
+          // Restore the relative time if it was set before execution, even on error
           if (relativeTime) {
-            state.data.value.selectedRelativeTime = relativeTime;
+            // Use setRelativeTimeRange to ensure both relative string and absolute range are updated
+            setRelativeTimeRange(relativeTime);
           }
       }
 
