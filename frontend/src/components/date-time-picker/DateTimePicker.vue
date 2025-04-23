@@ -300,7 +300,8 @@ function openDatePicker() {
 
 // Expose methods to parent component
 defineExpose({
-    openDatePicker
+    openDatePicker,
+    selectedQuickRange
 })
 </script>
 

@@ -364,13 +364,49 @@ watch(() => [currentRoute.query.q, currentRoute.query.mode], ([newQueryParam, ne
   }
 }, { immediate: true });
 
+// Function to map quick range labels to relativeTime format
+function quickRangeLabelToRelativeTime(label: string): string | null {
+  // Map DateTimePicker quick range labels to the format expected by exploreStore
+  const mapping: Record<string, string> = {
+    'Last 5m': '5m',
+    'Last 15m': '15m',
+    'Last 30m': '30m',
+    'Last 1h': '1h',
+    'Last 3h': '3h',
+    'Last 6h': '6h',
+    'Last 12h': '12h',
+    'Last 24h': '24h',
+    'Last 2d': '2d',
+    'Last 7d': '7d',
+    'Last 30d': '30d',
+    'Last 90d': '90d'
+  };
+  return mapping[label] || null;
+}
+
 // Date range computed property
 const dateRange = computed({
   get() {
     return exploreStore.timeRange
   },
   set(value) {
-    exploreStore.setTimeRange(value)
+    // Check if this update came from a quick range selection in DateTimePicker
+    if (dateTimePickerRef.value?.selectedQuickRange) {
+      // Convert quick range label to relative time format
+      const relativeTime = quickRangeLabelToRelativeTime(dateTimePickerRef.value.selectedQuickRange);
+      if (relativeTime) {
+        // Set the relative time in the store (which also sets the absolute time range)
+        exploreStore.setRelativeTimeRange(relativeTime);
+        return;
+      }
+    }
+
+    // If no relative time was found, update as absolute time range
+    exploreStore.setTimeRange(value);
+    // Clear any previously set relative time
+    if (exploreStore.selectedRelativeTime) {
+      exploreStore.setRelativeTimeRange(null);
+    }
     // URL will be updated by the watch on exploreStore.timeRange
   }
 })
@@ -1159,7 +1195,7 @@ const insertExampleQuery = (sortKeys: string[] = []) => {
   }
 };
 
-// Update the handler function for query execution to properly handle browser history
+// Function to execute a query and handle URL history
 const handleQueryExecution = async () => {
   try {
     // Execute the query
@@ -1175,6 +1211,23 @@ const handleQueryExecution = async () => {
     console.error("Error during query execution:", error);
   }
 };
+
+// Watch for query execution to preserve relative time
+watch(() => exploreStore.lastExecutionTimestamp, () => {
+  // Check if we need to restore the selected relative time
+  // This ensures it's not lost during query execution
+  const relativeTimeFromUrl = currentRoute.query.relativeTime as string | undefined;
+  if (relativeTimeFromUrl && !exploreStore.selectedRelativeTime) {
+    // Re-apply the relative time setting if it was lost
+    console.log('Restoring relative time from URL after query execution:', relativeTimeFromUrl);
+    exploreStore.setRelativeTimeRange(relativeTimeFromUrl);
+
+    // Make sure URL parameters get synced correctly
+    nextTick(() => {
+      syncUrlFromState();
+    });
+  }
+});
 </script>
 
 <template>

@@ -28,6 +28,7 @@ export function useQuery() {
   const sqlWarnings = ref<string[]>([]);
   const hasRunQuery = ref(false);
   const isFromUrl = ref(true); // Track if current content came from URL
+  const initialQueryExecution = ref(true); // Flag to track initial execution from URL
 
   // Computed query content
   const logchefQuery = computed({
@@ -75,6 +76,12 @@ export function useQuery() {
 
   // Check if query state is dirty (needs execution)
   const isDirty = computed(() => {
+    // If we're still in the initial query execution phase and the content came from URL,
+    // it shouldn't be marked as dirty
+    if (initialQueryExecution.value && isFromUrl.value) {
+      return false;
+    }
+
     const lastState = exploreStore.lastExecutedState;
     if (!lastState) {
       // If no previous state, only consider dirty if there's actually query content
@@ -106,6 +113,33 @@ export function useQuery() {
           activeMode.value === 'sql' &&
           (!lastState.logchefqlQuery || lastState.logchefqlQuery.trim() === '')) {
         return false;
+      }
+
+      // Special case: when switching from LogChefQL to SQL with auto-translation
+      // If we're in SQL mode with content marked as from URL (not manually edited),
+      // and we have valid LogChefQL content that matches the last execution state,
+      // then this is just an auto-translation and should not be considered dirty
+      if (lastState.mode === 'logchefql' &&
+          activeMode.value === 'sql' &&
+          isFromUrl.value &&
+          logchefQuery.value?.trim() === lastState.logchefqlQuery?.trim()) {
+        return false;
+      }
+
+      // Additional special case: URL-loaded LogChefQL to auto-translated SQL
+      // If we're in SQL mode with LogChefQL content, check if the SQL matches what would be generated
+      if (activeMode.value === 'sql' && logchefQuery.value?.trim()) {
+        try {
+          // Generate SQL from the current LogChefQL query
+          const result = translateLogchefQLToSQL(logchefQuery.value);
+          if (result.success && sqlQuery.value?.trim() === result.sql.trim()) {
+            // The SQL matches what would be auto-generated, so not dirty
+            return false;
+          }
+        } catch (err) {
+          console.error("Error checking SQL translation:", err);
+          // On error, fall back to standard checks
+        }
       }
     }
 
@@ -207,7 +241,8 @@ export function useQuery() {
         if (result.success) {
           // Always set SQL when logchefQL exists and translation succeeds
           sqlQuery.value = result.sql;
-          // Only mark as user-generated content if not just a mode switch
+          // Keep isFromUrl true when it's just a mode switch to prevent marking as dirty
+          // This is the key fix - we don't want auto-translated content to be considered dirty
           if (!isModeSwitchOnly) {
             isFromUrl.value = false;
           }
@@ -384,8 +419,10 @@ export function useQuery() {
         sqlQuery: sqlQuery.value
       });
 
-      // After execution, content is no longer considered from URL
-      isFromUrl.value = false;
+      // Only reset isFromUrl if this is not the initial query execution from URL
+      if (!initialQueryExecution.value) {
+        isFromUrl.value = false;
+      }
 
       // Execute the query via store
       const execResult = await exploreStore.executeQuery(result.sql);
@@ -402,8 +439,9 @@ export function useQuery() {
         // pushQueryHistoryEntry();
       }
 
-      // Mark that we've run a query
+      // Mark that we've run a query and no longer in initial execution
       hasRunQuery.value = true;
+      initialQueryExecution.value = false;
 
       return {
         success: execResult.success,
