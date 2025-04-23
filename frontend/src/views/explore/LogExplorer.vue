@@ -334,6 +334,9 @@ const handleQueryExecution = async (debouncingKey = '') => {
       // This will create a new browser history entry with router.push
       // and prevent the watcher from using router.replace
       pushQueryHistoryEntry();
+
+      // Update SQL and mark as not dirty AFTER successful execution
+      handleTimeRangeUpdate();
     }
 
     // Clear execution state
@@ -432,9 +435,14 @@ watch(isInitializing, async (initializing, prevInitializing) => {
     // Make sure we have a valid time range before potentially executing the query
     if (!exploreStore.timeRange || !exploreStore.timeRange.start || !exploreStore.timeRange.end) {
       console.log("LogExplorer: No valid time range found after init, setting default.");
-      // Set a default time range (e.g., last 15 minutes or use relative '15m')
+      // Set a default time range using relative time
       exploreStore.setRelativeTimeRange('15m');
       // Ensure the default time range is set before proceeding
+      await nextTick();
+    } else if (!exploreStore.selectedRelativeTime) {
+      // If we have absolute time but no relative time, prefer to set relative time
+      // This ensures consistency with our preference for relative time
+      exploreStore.setRelativeTimeRange('15m');
       await nextTick();
     }
 
@@ -456,7 +464,7 @@ watch(isInitializing, async (initializing, prevInitializing) => {
   }
 }, { immediate: false });
 
-// --- Modify the timeRange watcher with improved debouncing (around line 690) ---
+// --- Modify the timeRange watcher with improved debouncing ---
 // Watch time range changes and update query dirty state
 const timeRangeUpdateDebouncer = ref(null);
 watch(
@@ -563,6 +571,10 @@ watch(
       // If activeMode is not 'sql', call the generic handler to mark as dirty.
       handleTimeRangeUpdate();
     }
+
+    // Trigger URL sync explicitly
+    syncUrlFromState();
+
     // DO NOT CALL executeQuery() here. Let the user or a debounced watcher trigger it.
   }, // End of callback function
   { deep: true }

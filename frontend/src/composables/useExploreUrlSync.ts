@@ -267,15 +267,8 @@ export function useExploreUrlSync() {
 
   // Helper function to set default time range (last 15 minutes)
   function setDefaultTimeRange() {
-    const nowDt = now(getLocalTimeZone());
-    const startDateTime = new CalendarDateTime(
-      nowDt.year, nowDt.month, nowDt.day, nowDt.hour, nowDt.minute, nowDt.second
-    ).subtract({ minutes: 15 });
-    const endDateTime = new CalendarDateTime(
-      nowDt.year, nowDt.month, nowDt.day, nowDt.hour, nowDt.minute, nowDt.second
-    );
-
-    exploreStore.setTimeRange({ start: startDateTime, end: endDateTime });
+    // Use relative time format instead of absolute timestamps
+    exploreStore.setRelativeTimeRange('15m');
   }
 
   // --- URL Update Logic ---
@@ -301,9 +294,6 @@ export function useExploreUrlSync() {
 
     const query: Record<string, string> = {};
 
-    // CRITICAL: Directly check if relativeTime exists in URL to preserve it
-    const relativeTimeFromUrl = route.query.relativeTime as string | undefined;
-
     // Team
     if (teamsStore.currentTeamId) {
       query.team = teamsStore.currentTeamId.toString();
@@ -322,41 +312,24 @@ export function useExploreUrlSync() {
     // Limit
     query.limit = exploreStore.limit.toString();
 
-    // Use same priority order as in pushQueryHistoryEntry:
-    // 1. Existing relativeTime from URL
-    // 2. Store's selectedRelativeTime
-    // 3. Absolute timestamps
-    if (relativeTimeFromUrl) {
-      // Always prefer to keep the existing URL parameter
-      query.relativeTime = relativeTimeFromUrl;
-
-      // Also ensure store has this value to maintain consistency ONLY IF NEEDED
-      // Check if the store's relative time is missing OR different from the URL's,
-      // AND we are not in the initial relative time preservation phase.
-      if (relativeTimeFromUrl && exploreStore.selectedRelativeTime !== relativeTimeFromUrl && !preservingRelativeTime) {
-        console.log(`syncUrlFromState: Store relative time (${exploreStore.selectedRelativeTime}) differs from URL (${relativeTimeFromUrl}). Updating store.`);
-        // Update store asynchronously ONLY if the store doesn't match the URL source of truth
-        // and we are not actively preserving the initial relative time from the URL.
-        setTimeout(() => {
-          // Double check before setting to avoid race conditions
-          if (exploreStore.selectedRelativeTime !== relativeTimeFromUrl) {
-             exploreStore.setRelativeTimeRange(relativeTimeFromUrl);
-          }
-        }, 0);
-      }
-    }
-    else if (exploreStore.selectedRelativeTime) {
-      // Use the store's value if URL doesn't have one
+    // Time handling - prioritize relative time if available
+    if (exploreStore.selectedRelativeTime) {
       query.relativeTime = exploreStore.selectedRelativeTime;
-    }
-    else {
-      // Only use absolute times if no relative time is found
+
+      // Remove any absolute time params to avoid confusion
+      delete query.start_time;
+      delete query.end_time;
+    } else {
+      // Only use absolute times if no relative time is available
       const startTime = calendarDateTimeToTimestamp(exploreStore.timeRange?.start);
       const endTime = calendarDateTimeToTimestamp(exploreStore.timeRange?.end);
       if (startTime !== null && endTime !== null) {
         query.start_time = startTime.toString();
         query.end_time = endTime.toString();
       }
+
+      // Remove any relative time param to avoid confusion
+      delete query.relativeTime;
     }
 
     // Mode
@@ -374,14 +347,8 @@ export function useExploreUrlSync() {
       query.q = encodeURIComponent(decodedContent);
     }
 
-    // Only update if the query params actually changed AND not in preservation mode
+    // Compare with current URL and update only if changed
     if (JSON.stringify(query) !== JSON.stringify(route.query)) {
-      // Extra check: even if we're about to remove relativeTime, don't do it if we're in preservation mode
-      if (preservingRelativeTime && route.query.relativeTime && !query.relativeTime) {
-        console.log("Protected relativeTime from being removed from URL");
-        query.relativeTime = route.query.relativeTime as string;
-      }
-
       console.log("URL Sync: Updating URL parameters:", JSON.stringify(query));
       router.replace({ query }).catch(err => {
           // Ignore navigation duplicated errors which can happen with rapid updates
@@ -405,9 +372,6 @@ export function useExploreUrlSync() {
     // Get the original query parameters
     const query: Record<string, string> = {};
 
-    // CRITICAL: Directly preserve the relativeTime parameter from URL if it exists
-    const relativeTimeFromUrl = route.query.relativeTime as string | undefined;
-
     // Include the same parameters as syncUrlFromState
     if (teamsStore.currentTeamId) {
       query.team = teamsStore.currentTeamId.toString();
@@ -423,55 +387,22 @@ export function useExploreUrlSync() {
 
     query.limit = exploreStore.limit.toString();
 
-    // Prioritize relative time in this exact order:
-    // 1. Existing relativeTime from URL
-    // 2. Store's selectedRelativeTime
-    // 3. Absolute timestamps
-    if (relativeTimeFromUrl) {
-      // Always prefer to keep the existing URL parameter
-      query.relativeTime = relativeTimeFromUrl;
-
-      // Also ensure store has this value to maintain consistency ONLY IF NEEDED
-      // Check if the store's relative time is missing OR different from the URL's,
-      // AND we are not in the initial relative time preservation phase.
-      if (relativeTimeFromUrl && exploreStore.selectedRelativeTime !== relativeTimeFromUrl && !preservingRelativeTime) {
-        console.log(`pushQueryHistoryEntry: Store relative time (${exploreStore.selectedRelativeTime}) differs from URL (${relativeTimeFromUrl}). Updating store.`);
-        // Update store asynchronously ONLY if the store doesn't match the URL source of truth
-        // and we are not actively preserving the initial relative time from the URL.
-        setTimeout(() => {
-          // Double check before setting to avoid race conditions
-          if (exploreStore.selectedRelativeTime !== relativeTimeFromUrl) {
-             exploreStore.setRelativeTimeRange(relativeTimeFromUrl);
-          }
-        }, 0);
-      }
-
-      // We have relativeTime in URL, ensure it stays safe for a while
-      preservingRelativeTime = true;
-      setTimeout(() => {
-        preservingRelativeTime = false;
-        console.log('Relative time preservation mode deactivated after history push');
-      }, 1000);
-    }
-    else if (exploreStore.selectedRelativeTime) {
-      // Use the store's value if URL doesn't have one
+    // Time handling - same logic as syncUrlFromState
+    if (exploreStore.selectedRelativeTime) {
       query.relativeTime = exploreStore.selectedRelativeTime;
-
-      // We have relativeTime in store, ensure it stays safe for a while
-      preservingRelativeTime = true;
-      setTimeout(() => {
-        preservingRelativeTime = false;
-        console.log('Relative time preservation mode deactivated after history push');
-      }, 1000);
-    }
-    else {
-      // Only use absolute times if no relative time is found
+      // Remove any absolute time params
+      delete query.start_time;
+      delete query.end_time;
+    } else {
+      // Only use absolute times if no relative time is available
       const startTime = calendarDateTimeToTimestamp(exploreStore.timeRange?.start);
       const endTime = calendarDateTimeToTimestamp(exploreStore.timeRange?.end);
       if (startTime !== null && endTime !== null) {
         query.start_time = startTime.toString();
         query.end_time = endTime.toString();
       }
+      // Remove any relative time param
+      delete query.relativeTime;
     }
 
     query.mode = exploreStore.activeMode;
