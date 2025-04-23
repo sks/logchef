@@ -55,6 +55,8 @@ import LogHistogram from '@/components/visualizations/LogHistogram.vue';
 
 // Router and stores
 const router = useRouter()
+const route = useRoute()
+const currentRoute = route // Create a reference for consistent naming
 const exploreStore = useExploreStore()
 const teamsStore = useTeamsStore()
 const sourcesStore = useSourcesStore()
@@ -62,6 +64,33 @@ const savedQueriesStore = useSavedQueriesStore()
 const { toast } = useToast()
 // Get pushQueryHistoryEntry along with other functions from useExploreUrlSync
 const { isInitializing, initializationError, initializeFromUrl, syncUrlFromState, pushQueryHistoryEntry } = useExploreUrlSync();
+
+// Add the dateRange computed property
+const dateRange = computed({
+  get() {
+    return exploreStore.timeRange
+  },
+  set(value) {
+    // Check if this update came from a quick range selection in DateTimePicker
+    if (dateTimePickerRef.value?.selectedQuickRange) {
+      // Convert quick range label to relative time format
+      const relativeTime = quickRangeLabelToRelativeTime(dateTimePickerRef.value.selectedQuickRange);
+      if (relativeTime) {
+        // Set the relative time in the store (which also sets the absolute time range)
+        exploreStore.setRelativeTimeRange(relativeTime);
+        return;
+      }
+    }
+
+    // If no relative time was found, update as absolute time range
+    exploreStore.setTimeRange(value);
+    // Clear any previously set relative time
+    if (exploreStore.selectedRelativeTime) {
+      exploreStore.setRelativeTimeRange(null);
+    }
+    // URL will be updated by the watch on exploreStore.timeRange
+  }
+});
 
 // Composables
 const {
@@ -87,7 +116,7 @@ const {
 // Create default empty parsed query state
 const EMPTY_PARSED_QUERY = { success: false, meta: { fieldsUsed: [], conditions: [] } };
 
-// Parse the query after execution to highlight columns used in search
+// Add parsed query structure to highlight columns used in search
 const lastParsedQuery = ref<{
   success: boolean;
   meta?: {
@@ -133,9 +162,29 @@ watch(() => activeMode.value, (newMode, oldMode) => {
   }
 
   // If switching to SQL mode, ensure the table name is correct
-  if (newMode !== oldMode && newMode === 'sql' && activeSourceTableName.value) {
-    // Update SQL query with the current table name
-    updateSqlTableReference(activeSourceTableName.value);
+  if (newMode !== oldMode && newMode === 'sql') {
+    // Get current source details from the store
+    const tableName = sourcesStore.getCurrentSourceTableName;
+    if (tableName) {
+      // Update SQL query with the current table name
+      const currentSql = sqlQuery.value?.trim() || '';
+      if (currentSql) {
+        // Check if query has a FROM clause
+        const fromMatch = /\bFROM\s+(`?[\w.]+`?)/i.exec(currentSql);
+        if (fromMatch) {
+          // Replace old table name with new one, preserving backticks if present
+          const oldRef = fromMatch[1];
+          const hasBackticks = oldRef.startsWith('`') && oldRef.endsWith('`');
+          const newRef = hasBackticks ? `\`${tableName}\`` : tableName;
+
+          const updatedSql = currentSql.replace(oldRef, newRef);
+          if (updatedSql !== currentSql) {
+            sqlQuery.value = updatedSql;
+            exploreStore.setRawSql(updatedSql);
+          }
+        }
+      }
+    }
   }
 });
 
@@ -205,63 +254,6 @@ const {
   loadSourceQueries
 } = useSavedQueries()
 
-// Handle updating an existing query
-async function handleUpdateQuery(queryId: string, formData: SaveQueryFormData) {
-  // Ensure we have the necessary IDs
-  if (!currentSourceId.value || !formData.team_id) {
-    toast({
-      title: 'Error',
-      description: 'Missing source or team ID for update.',
-      variant: 'destructive',
-      duration: TOAST_DURATION.ERROR
-    });
-    return;
-  }
-
-  try {
-    // Use the correct store action: updateTeamSourceQuery
-    const response = await savedQueriesStore.updateTeamSourceQuery(
-      formData.team_id,
-      currentSourceId.value, // Pass the current source ID
-      queryId,
-      {
-        // Payload only includes fields allowed by updateTeamSourceQuery's type
-        name: formData.name,
-        description: formData.description,
-        query_type: formData.query_type,
-        query_content: formData.query_content
-      }
-    );
-
-    if (response && response.success) {
-      showSaveQueryModal.value = false;
-      editQueryData.value = null; // Clear editing state
-
-      toast({
-        title: 'Success',
-        description: 'Query updated successfully.',
-        duration: TOAST_DURATION.SUCCESS,
-        variant: 'success'
-      });
-
-      // Optional: Refresh the list if needed, though store should be reactive
-      // await loadSourceQueries(currentTeamId.value, currentSourceId.value);
-
-    } else if (response) {
-      // Handle potential API error returned in response.error
-      throw new Error(getErrorMessage(response.error) || 'Failed to update query');
-    }
-  } catch (error) {
-    console.error("Error updating query:", error);
-    toast({
-      title: 'Error',
-      description: getErrorMessage(error),
-      variant: 'destructive',
-      duration: TOAST_DURATION.ERROR
-    });
-  }
-}
-
 // Basic state
 const showFieldsPanel = ref(false)
 // Define the type for the queryEditorRef
@@ -272,6 +264,22 @@ const queryEditorRef = ref<ComponentPublicInstance<{
 const isLoadingQuery = ref(false)
 const editQueryData = ref<SavedTeamQuery | null>(null)
 const initialQueryExecuted = ref(false); // Flag to prevent multiple initial executions
+
+// Add query execution deduplication refs
+const executingQueryId = ref<string | null>(null);
+const lastQueryTime = ref<number>(0);
+let lastExecutionKey = '';
+
+// Use source details from the store
+const activeSourceTableName = computed(() => sourcesStore.getCurrentSourceTableName || '');
+
+// Add timezone preference for display
+const displayTimezone = computed(() =>
+  localStorage.getItem('logchef_timezone') === 'utc' ? 'utc' : 'local'
+);
+
+// Combined error display
+const displayError = computed(() => queryError.value || exploreStore.error?.message);
 
 // Group by field with computed default value based on severity field
 const groupByField = computed({
@@ -288,147 +296,78 @@ const groupByField = computed({
   }
 });
 
-// UI state computed properties
-const showLoadingState = computed(() => isInitializing.value && !initializationError.value)
+// --- Function to execute a query and handle URL history ---
+// Modify the function to include a debouncingKey parameter to prevent duplicate executions
+const handleQueryExecution = async (debouncingKey = '') => {
+  try {
+    // Get current timestamp for deduplication
+    const now = Date.now();
 
-const showNoTeamsState = computed(() => !isInitializing.value && (!availableTeams.value || availableTeams.value.length === 0))
+    // Create a unique execution ID
+    const executionId = `${debouncingKey || 'query'}-${now}`;
 
-const showNoSourcesState = computed(() =>
-  !isInitializing.value &&
-  !showNoTeamsState.value &&
-  currentTeamId.value !== null && currentTeamId.value > 0 &&
-  (!availableSources.value || availableSources.value.length === 0)
-)
+    // Simplify duplicate check logic - prevent execution if:
+    // 1. A query is already executing, or
+    // 2. The last query executed too recently (within 300ms)
+    const lastExecTime = exploreStore.lastExecutionTimestamp || 0;
+    const timeSinceLastQuery = now - lastExecTime;
 
-// Computed property to show the "Source Not Connected" state.
-// This should only be true AFTER details have loaded and the source is confirmed disconnected.
-const showSourceNotConnectedState = computed(() => {
-  // Don't show during init, if no teams/sources, or no source selected
-  if (isInitializing.value || showNoTeamsState.value || showNoSourcesState.value || !currentSourceId.value) {
-    return false;
-  }
-  // Don't show while details for the *current* source are loading
-  if (sourcesStore.isLoadingSourceDetails(currentSourceId.value)) {
-    return false;
-  }
-  // Show only if details *have* loaded (details exist and match current ID) AND the source is invalid/disconnected
-  return sourcesStore.currentSourceDetails?.id === currentSourceId.value && !sourcesStore.hasValidCurrentSource;
-});
-
-// Use source details from the store
-const activeSourceTableName = computed(() => sourcesStore.getCurrentSourceTableName || '');
-
-// Better track when URL query params change
-const currentRoute = useRoute();
-
-// Track both query content and mode from URL
-const lastQueryParam = ref(currentRoute.query.q);
-const lastModeParam = ref(currentRoute.query.mode);
-
-// Check if we're in edit mode (URL has query_id)
-const isEditingExistingQuery = computed(() => !!currentRoute.query.query_id || !!exploreStore.selectedQueryId);
-const queryIdFromUrl = computed(() => currentRoute.query.query_id as string | undefined);
-
-// Computed property to determine if the query is savable/updatable
-const canSaveOrUpdateQuery = computed(() => {
-  return !!currentTeamId.value &&
-    !!currentSourceId.value &&
-    hasValidSource.value && // Ensure source is valid
-    (!!exploreStore.logchefqlCode?.trim() || !!exploreStore.rawSql?.trim());
-});
-
-// Watch for URL query parameter changes
-watch(() => [currentRoute.query.q, currentRoute.query.mode], ([newQueryParam, newModeParam]) => {
-  // Handle mode change from URL
-  if (newModeParam !== undefined && newModeParam !== lastModeParam.value) {
-    lastModeParam.value = newModeParam as string;
-
-    // Update mode in store based on URL
-    const mode = (newModeParam as string).toLowerCase() === 'logchefql' ? 'logchefql' : 'sql';
-    if (exploreStore.activeMode !== mode) {
-      exploreStore.setActiveMode(mode);
-    }
-  }
-
-  // Handle query content change from URL
-  if (newQueryParam !== undefined && newQueryParam !== lastQueryParam.value) {
-    lastQueryParam.value = newQueryParam as string;
-
-    const decodedQuery = decodeURIComponent(newQueryParam as string);
-
-    // Update content based on current mode (which may have just changed)
-    if (exploreStore.activeMode === 'logchefql') {
-      exploreStore.setLogchefqlCode(decodedQuery);
-    } else {
-      exploreStore.setRawSql(decodedQuery);
-    }
-  }
-}, { immediate: true });
-
-// Function to map quick range labels to relativeTime format
-function quickRangeLabelToRelativeTime(label: string): string | null {
-  // Map DateTimePicker quick range labels to the format expected by exploreStore
-  const mapping: Record<string, string> = {
-    'Last 5m': '5m',
-    'Last 15m': '15m',
-    'Last 30m': '30m',
-    'Last 1h': '1h',
-    'Last 3h': '3h',
-    'Last 6h': '6h',
-    'Last 12h': '12h',
-    'Last 24h': '24h',
-    'Last 2d': '2d',
-    'Last 7d': '7d',
-    'Last 30d': '30d',
-    'Last 90d': '90d'
-  };
-  return mapping[label] || null;
-}
-
-// Date range computed property
-const dateRange = computed({
-  get() {
-    return exploreStore.timeRange
-  },
-  set(value) {
-    // Check if this update came from a quick range selection in DateTimePicker
-    if (dateTimePickerRef.value?.selectedQuickRange) {
-      // Convert quick range label to relative time format
-      const relativeTime = quickRangeLabelToRelativeTime(dateTimePickerRef.value.selectedQuickRange);
-      if (relativeTime) {
-        // Set the relative time in the store (which also sets the absolute time range)
-        exploreStore.setRelativeTimeRange(relativeTime);
-        return;
-      }
+    if (isExecutingQuery.value || (lastExecTime > 0 && timeSinceLastQuery < 300)) {
+      console.log(`LogExplorer: Skipping query execution - ${isExecutingQuery.value ? 'already executing' : 'too soon after previous query'}`);
+      return;
     }
 
-    // If no relative time was found, update as absolute time range
-    exploreStore.setTimeRange(value);
-    // Clear any previously set relative time
-    if (exploreStore.selectedRelativeTime) {
-      exploreStore.setRelativeTimeRange(null);
-    }
-    // URL will be updated by the watch on exploreStore.timeRange
-  }
-})
+    // Set executing state
+    executingQueryId.value = executionId;
+    lastExecutionKey = debouncingKey;
+    lastQueryTime.value = now;
 
-// Add timezone preference for display
-const displayTimezone = computed(() =>
-  localStorage.getItem('logchef_timezone') === 'utc' ? 'utc' : 'local'
+    // Log before execution
+    console.log(`LogExplorer: Executing query with ID ${executionId}`);
+
+    // Execute the query
+    const result = await executeQuery();
+
+    // Only push a history entry if the query executed successfully
+    // But don't do it during initialization to avoid duplicate history entries
+    if (result && result.success && !isInitializing.value) {
+      // This will create a new browser history entry with router.push
+      // and prevent the watcher from using router.replace
+      pushQueryHistoryEntry();
+    }
+
+    // Clear execution state
+    executingQueryId.value = null;
+  } catch (error) {
+    console.error("Error during query execution:", error);
+    executingQueryId.value = null;
+  }
+};
+
+// --- Modify the watch for lastExecutionTimestamp ---
+// Update the watch to include our debounce mechanism
+watch(() => exploreStore.lastExecutionTimestamp,
+  (newTimestamp) => {
+    // This should only update the query state, not trigger another query
+    if (newTimestamp) {
+      // Important: We can't directly set isDirty.value since it's computed
+      // Instead, force a state update that would affect isDirty
+      handleTimeRangeUpdate(); // This will properly update the dirty state
+    }
+  }
 );
 
-
-// Combined error display
-const displayError = computed(() => queryError.value || exploreStore.error?.message)
-
-// Watch for initialization completion to run initial query and load source details, ensuring it runs only once
+// --- Update isInitializing watcher to use our deduped handler ---
 watch(isInitializing, async (initializing, prevInitializing) => {
+  // Only proceed if initialization has just finished (went from true to false)
+  // AND the initial query execution logic hasn't run yet.
   if (prevInitializing && !initializing && !initialQueryExecuted.value) {
-    // Mark that the initial query execution is starting
+    // --- CRITICAL: Immediately mark that we are starting the execution logic ---
+    // This prevents race conditions if the watcher triggers again quickly.
     initialQueryExecuted.value = true;
-    console.log("LogExplorer: Running initial query execution logic.");
+    console.log("LogExplorer: Initialization complete. Running initial query setup.");
 
-    // If we have a valid source ID after initialization, load its details
+    // If we have a valid source ID after initialization, load its details first
     if (currentSourceId.value && currentSourceId.value > 0) {
       const sourceExists = availableSources.value.some(source => source.id === currentSourceId.value);
       if (sourceExists) {
@@ -439,6 +378,7 @@ watch(isInitializing, async (initializing, prevInitializing) => {
     const queryId = queryIdFromUrl.value; // Get query ID from computed property
 
     if (queryId) {
+      // Logic for loading saved query - unchanged
       if (!currentTeamId.value) {
         toast({
           title: 'Error',
@@ -484,24 +424,149 @@ watch(isInitializing, async (initializing, prevInitializing) => {
           variant: 'destructive',
           duration: TOAST_DURATION.ERROR
         });
+        // Even if loading saved query fails, proceed to check time range and potentially execute default query
       }
     }
 
-    // Make sure we have a valid time range before executing the query
+    // --- Ensure Time Range Exists ---
+    // Make sure we have a valid time range before potentially executing the query
     if (!exploreStore.timeRange || !exploreStore.timeRange.start || !exploreStore.timeRange.end) {
-      // Set a default time range (last 1 hour)
-      exploreStore.setTimeRange({
-        start: now(getLocalTimeZone()).subtract({ hours: 1 }),
-        end: now(getLocalTimeZone())
-      });
+      console.log("LogExplorer: No valid time range found after init, setting default.");
+      // Set a default time range (e.g., last 15 minutes or use relative '15m')
+      exploreStore.setRelativeTimeRange('15m');
+      // Ensure the default time range is set before proceeding
+      await nextTick();
     }
 
-    // Now check if we can execute the query (either the one from URL or the loaded saved one)
+    // --- Execute Initial Query (if applicable) ---
+    // Use our deduplicated execution handler with a special initialization key
     if (canExecuteQuery.value) {
-      await executeQuery();
+      console.log("LogExplorer: Conditions met, executing initial query synchronously.");
+      await handleQueryExecution('initial-load'); // Use init-specific key
+    } else {
+      console.log("LogExplorer: Conditions not met for initial query execution (canExecuteQuery is false).");
+      // If we loaded a saved query but can't execute, maybe sync URL state?
+      if (queryId) {
+        syncUrlFromState(); // Ensure URL reflects the loaded (but not executed) state
+      }
     }
+  } else if (prevInitializing && !initializing && initialQueryExecuted.value) {
+    // Log if the watcher triggers again after the initial execution logic has already run
+    console.log("LogExplorer: Initialization watcher triggered again, but initial query logic already ran. Skipping.");
   }
 }, { immediate: false });
+
+// --- Modify the timeRange watcher with improved debouncing (around line 690) ---
+// Watch time range changes and update query dirty state
+const timeRangeUpdateDebouncer = ref(null);
+watch(
+  () => exploreStore.timeRange,
+  (newRange, oldRange) => {
+    // --- Guard against running during initialization ---
+    if (isInitializing.value) {
+      return; // Exit early if still initializing
+    }
+    // --- End Guard ---
+
+    if (!newRange || !oldRange) return;
+
+    // More reliable check for actual date changes using timestamps
+    const calendarDateTimeToTimestamp = (dateTime: DateValue | null | undefined): number | null => {
+      if (!dateTime) return null;
+      try {
+        const date = dateTime.toDate(getLocalTimeZone());
+        return date.getTime();
+      } catch (e) { return null; }
+    };
+    const startChanged = calendarDateTimeToTimestamp(newRange.start) !== calendarDateTimeToTimestamp(oldRange.start);
+    const endChanged = calendarDateTimeToTimestamp(newRange.end) !== calendarDateTimeToTimestamp(oldRange.end);
+
+    if (!startChanged && !endChanged) {
+      return; // No actual change in dates
+    }
+    console.log("LogExplorer: timeRange watcher detected change, proceeding.");
+
+    // Clear any existing debounce timer
+    if (timeRangeUpdateDebouncer.value) {
+      clearTimeout(timeRangeUpdateDebouncer.value);
+    }
+
+    // Just update SQL and mark as dirty (the check for change is now done above)
+    // Update SQL if we're in SQL mode and have a standard pattern
+    if (activeMode.value === 'sql') {
+      const currentSql = sqlQuery.value?.trim() || '';
+      if (!currentSql) {
+        // If no SQL, just call the handler to mark dirty
+        handleTimeRangeUpdate();
+        return;
+      }
+
+      // Format dates for SQL
+      const formatSqlDateTime = (date: DateValue): string => {
+        try {
+          const zonedDate = toCalendarDateTime(date);
+          const isoString = zonedDate.toString();
+          // Format as 'YYYY-MM-DD HH:MM:SS'
+          return isoString.replace('T', ' ').substring(0, 19);
+        } catch (e) {
+          console.error("Error formatting date for SQL:", e);
+          return '';
+        }
+      };
+
+      const startDateStr = formatSqlDateTime(newRange.start);
+      const endDateStr = formatSqlDateTime(newRange.end);
+
+      // Get the user's timezone for new queries or when updating timezone-aware queries
+      const userTimezone = getLocalTimeZone();
+
+      // Pattern to detect: Timezone-aware time range - single toDateTime call with timezone
+      const tzTimeRangePattern = /WHERE\s+`?(\w+)`?\s+BETWEEN\s+toDateTime\(['"](.+?)['"],\s*['"]([^'"]+)['"]\)(.*?)AND\s+toDateTime\(['"](.+?)['"],\s*['"]([^'"]+)['"]\)(.*?)(\s|$)/i;
+
+      // Pattern to detect: Standard time range pattern
+      const basicTimeRangePattern = /WHERE\s+`?(\w+)`?\s+BETWEEN\s+toDateTime\(['"](.+?)[']\)(.*?)AND\s+toDateTime\(['"](.+?)[']\)(.*?)(\s|$)/i;
+
+      if (tzTimeRangePattern.test(currentSql)) {
+        // Update timezone-aware time range
+        const updatedSql = currentSql.replace(
+          tzTimeRangePattern,
+          `WHERE \`$1\` BETWEEN toDateTime('${startDateStr}', '$3')$4AND toDateTime('${endDateStr}', '$6')$7$8`
+        );
+
+        if (updatedSql !== currentSql) {
+          // Only update if the SQL actually changed
+          sqlQuery.value = updatedSql;
+          // Don't call handleTimeRangeUpdate() as we've already updated the SQL
+          // Just let the change be reflected. Execution should be triggered elsewhere (e.g., debounced watcher or run button)
+          return;
+        }
+      }
+      else if (basicTimeRangePattern.test(currentSql)) {
+        // Convert basic time range to timezone-aware
+        const updatedSql = currentSql.replace(
+          basicTimeRangePattern,
+          `WHERE \`$1\` BETWEEN toDateTime('${startDateStr}', '${userTimezone}')$3AND toDateTime('${endDateStr}', '${userTimezone}')$5$6`
+        );
+
+        if (updatedSql !== currentSql) {
+          // Only update if the SQL actually changed
+          sqlQuery.value = updatedSql;
+          // Don't call handleTimeRangeUpdate() as we've already updated the SQL
+          // Just let the change be reflected. Execution should be triggered elsewhere.
+          return;
+        }
+      }
+      // If we are in SQL mode but didn't return early (no pattern matched or no change),
+      // call the generic handler to mark as dirty.
+      handleTimeRangeUpdate();
+    } else {
+      // If activeMode is not 'sql', call the generic handler to mark as dirty.
+      handleTimeRangeUpdate();
+    }
+    // DO NOT CALL executeQuery() here. Let the user or a debounced watcher trigger it.
+  }, // End of callback function
+  { deep: true }
+);
 
 // Function to reset/initialize queries when switching sources
 function resetQueriesForSourceChange() {
@@ -649,104 +714,15 @@ watch(
 watch(
   () => sourceDetails.value,
   (newSourceDetails, oldSourceDetails) => {
+    // No automatic query execution here - this should be handled by the isInitializing watcher
+    // to ensure it only runs once after all initial setup.
     if (newSourceDetails?.id !== oldSourceDetails?.id) {
-      // If this is the first time loading a valid source and initialization is complete,
-      // execute the query automatically after a short delay to ensure everything is ready
-      if (newSourceDetails && !oldSourceDetails && !isInitializing.value && canExecuteQuery.value) {
-        setTimeout(() => {
-          if (canExecuteQuery.value) {
-            executeQuery();
-          }
-        }, 100);
-      }
+      // Optionally log or perform other actions when source details change,
+      // but avoid triggering executeQuery here.
+      console.log("Source details changed:", newSourceDetails?.id);
     }
   },
   { immediate: true }
-);
-
-
-// Watch time range changes and update query dirty state
-watch(
-  () => exploreStore.timeRange,
-  (newRange, oldRange) => {
-    if (!newRange || !oldRange) return;
-    if (JSON.stringify(newRange) === JSON.stringify(oldRange)) return;
-
-    // If time range changed significantly, don't auto-execute query
-    // Just update SQL and mark as dirty
-    if (newRange && oldRange &&
-      (newRange.start.toString() !== oldRange.start.toString() ||
-        newRange.end.toString() !== oldRange.end.toString())) {
-
-      // Update SQL if we're in SQL mode and have a standard pattern
-      if (activeMode.value === 'sql') {
-        const currentSql = sqlQuery.value?.trim() || '';
-        if (!currentSql) {
-          handleTimeRangeUpdate();
-          return;
-        }
-
-        // Format dates for SQL
-        const formatSqlDateTime = (date: DateValue): string => {
-          try {
-            const zonedDate = toCalendarDateTime(date);
-            const isoString = zonedDate.toString();
-            // Format as 'YYYY-MM-DD HH:MM:SS'
-            return isoString.replace('T', ' ').substring(0, 19);
-          } catch (e) {
-            console.error("Error formatting date for SQL:", e);
-            return '';
-          }
-        };
-
-        const startDateStr = formatSqlDateTime(newRange.start);
-        const endDateStr = formatSqlDateTime(newRange.end);
-
-        // Get the user's timezone for new queries or when updating timezone-aware queries
-        const userTimezone = getLocalTimeZone();
-
-        // Pattern to detect: Timezone-aware time range - single toDateTime call with timezone
-        const tzTimeRangePattern = /WHERE\s+`?(\w+)`?\s+BETWEEN\s+toDateTime\(['"](.+?)['"],\s*['"]([^'"]+)['"]\)(.*?)AND\s+toDateTime\(['"](.+?)['"],\s*['"]([^'"]+)['"]\)(.*?)(\s|$)/i;
-
-        // Pattern to detect: Standard time range pattern
-        const basicTimeRangePattern = /WHERE\s+`?(\w+)`?\s+BETWEEN\s+toDateTime\(['"](.+?)[']\)(.*?)AND\s+toDateTime\(['"](.+?)[']\)(.*?)(\s|$)/i;
-
-        if (tzTimeRangePattern.test(currentSql)) {
-          // Update timezone-aware time range
-          const updatedSql = currentSql.replace(
-            tzTimeRangePattern,
-            `WHERE \`$1\` BETWEEN toDateTime('${startDateStr}', '$3')$4AND toDateTime('${endDateStr}', '$6')$7$8`
-          );
-
-          if (updatedSql !== currentSql) {
-            // Only update if the SQL actually changed
-            sqlQuery.value = updatedSql;
-            // Don't call handleTimeRangeUpdate() as we've already updated the SQL
-            return;
-          }
-        }
-        else if (basicTimeRangePattern.test(currentSql)) {
-          // Convert basic time range to timezone-aware
-          const updatedSql = currentSql.replace(
-            basicTimeRangePattern,
-            `WHERE \`$1\` BETWEEN toDateTime('${startDateStr}', '${userTimezone}')$3AND toDateTime('${endDateStr}', '${userTimezone}')$5$6`
-          );
-
-          if (updatedSql !== currentSql) {
-            // Only update if the SQL actually changed
-            sqlQuery.value = updatedSql;
-            // Don't call handleTimeRangeUpdate() as we've already updated the SQL
-            return;
-          }
-        }
-      }
-
-      // Use the query builder's handler for time range updates
-      // This will set isDirty and show a notification instead of updating SQL directly
-      handleTimeRangeUpdate();
-    }
-  },
-  { deep: true }
 );
 
 // Watch limit changes and update query dirty state
@@ -922,7 +898,7 @@ onBeforeUnmount(() => {
 });
 
 // Additional debug for route changes
-watch(() => currentRoute.fullPath, (newPath, oldPath) => {
+watch(() => route.fullPath, (newPath, oldPath) => {
   // No logging needed here
 }, { immediate: true });
 
@@ -1043,7 +1019,7 @@ const handleLimitChange = (newLimit: number) => {
 
 // Add a watch for table name changes to update SQL queries when the source changes
 watch(
-  () => activeSourceTableName.value,
+  () => sourcesStore.getCurrentSourceTableName,
   (newTableName, oldTableName) => {
     // Skip if either name is missing or if they're the same
     if (!newTableName || !oldTableName || newTableName === oldTableName) {
@@ -1111,11 +1087,18 @@ function handleHistogramTimeRangeZoom(range: { start: Date; end: Date }) {
     const start = toCalendarDateTime(fromDate(range.start, getLocalTimeZone()));
     const end = toCalendarDateTime(fromDate(range.end, getLocalTimeZone()));
 
-    // Update the store's time range
+    // Update the store's time range using the appropriate action
+    // Use setTimeRange as this is an absolute range selection
     exploreStore.setTimeRange({ start, end });
 
-    // Execute query immediately with new time range
-    executeQuery();
+    // Generate a unique key for this zoom operation to prevent duplicates
+    const zoomKey = `zoom-${Date.now()}`;
+
+    // Call the debounced execution function with the key
+    // Defer execution to avoid race conditions
+    setTimeout(() => {
+      handleQueryExecution(zoomKey);
+    }, 50);
 
     // Update URL state
     syncUrlFromState();
@@ -1136,20 +1119,13 @@ function handleHistogramTimeRangeUpdate(range: { start: DateValue; end: DateValu
     console.log('Updating time range from histogram selection:', range);
 
     // Update the dateRange computed property which will update the store
+    // This will trigger the timeRange watcher we modified earlier.
     dateRange.value = range;
 
-    // Also trigger the date picker to update its visual state
-    if (dateTimePickerRef.value) {
-      // This signals the DateTimePicker component to update its UI
-      nextTick(() => {
-        executeQuery();
-      });
-    } else {
-      // If we can't get the date picker ref, still execute the query
-      executeQuery();
-    }
+    // DO NOT trigger executeQuery() here.
+    // Let the change propagate through the reactive system.
 
-    // Update URL state
+    // Update URL state - might be deferred as well
     syncUrlFromState();
   } catch (e) {
     console.error('Error handling histogram time range update:', e);
@@ -1179,7 +1155,8 @@ const createExampleQueryWithSortKeys = (sortKeys: string[] = []) => {
     return keysToUse.map(key => `${key}="example"`).join(' and ');
   } else {
     // SQL example with first two non-timestamp keys
-    return `SELECT * FROM ${activeSourceTableName.value} WHERE ${keysToUse.map(key => `\`${key}\` = 'example'`).join(' AND ')} LIMIT 100`;
+    const tableName = sourcesStore.getCurrentSourceTableName || '';
+    return `SELECT * FROM ${tableName} WHERE ${keysToUse.map(key => `\`${key}\` = 'example'`).join(' AND ')} LIMIT 100`;
   }
 };
 
@@ -1200,24 +1177,144 @@ const insertExampleQuery = (sortKeys: string[] = []) => {
   }
 };
 
-// Function to execute a query and handle URL history
-const handleQueryExecution = async () => {
-  try {
-    // Execute the query
-    const result = await executeQuery();
+// Removed redundant watcher for lastExecutionTimestamp - relative time restoration is now handled in explore.ts executeQuery onSuccess/onError
 
-    // Only push a history entry if the query executed successfully
-    if (result && result.success) {
-      // This will create a new browser history entry with router.push
-      // and prevent the watcher from using router.replace
-      pushQueryHistoryEntry();
+// Fix for the missing UI state computed properties - add before the existing computed properties
+// UI state computed properties
+const showLoadingState = computed(() => isInitializing.value && !initializationError.value)
+
+const showNoTeamsState = computed(() => !isInitializing.value && (!availableTeams.value || availableTeams.value.length === 0))
+
+const showNoSourcesState = computed(() =>
+  !isInitializing.value &&
+  !showNoTeamsState.value &&
+  currentTeamId.value !== null && currentTeamId.value > 0 &&
+  (!availableSources.value || availableSources.value.length === 0)
+)
+
+// Computed property to show the "Source Not Connected" state.
+// This should only be true AFTER details have loaded and the source is confirmed disconnected.
+const showSourceNotConnectedState = computed(() => {
+  // Don't show during init, if no teams/sources, or no source selected
+  if (isInitializing.value || showNoTeamsState.value || showNoSourcesState.value || !currentSourceId.value) {
+    return false;
+  }
+  // Don't show while details for the *current* source are loading
+  if (sourcesStore.isLoadingSourceDetails(currentSourceId.value)) {
+    return false;
+  }
+  // Show only if details *have* loaded (details exist and match current ID) AND the source is invalid/disconnected
+  return sourcesStore.currentSourceDetails?.id === currentSourceId.value && !sourcesStore.hasValidCurrentSource;
+});
+
+// Computed property to show the "Source Connected" state.
+// This should only be true AFTER details have loaded and the source is confirmed connected.
+const showSourceConnectedState = computed(() => {
+  // Don't show during init, if no teams/sources, or no source selected
+  if (isInitializing.value || showNoTeamsState.value || showNoSourcesState.value || !currentSourceId.value) {
+    return false;
+  }
+  // Don't show while details for the *current* source are loading
+  if (sourcesStore.isLoadingSourceDetails(currentSourceId.value)) {
+    return false;
+  }
+  // Check if the source is connected
+  return sourceDetails.value?.is_connected;
+});
+
+// Better track when URL query params change
+// Track both query content and mode from URL
+const lastQueryParam = ref(route.query.q);
+const lastModeParam = ref(route.query.mode);
+
+// Check if we're in edit mode (URL has query_id)
+const isEditingExistingQuery = computed(() => !!route.query.query_id || !!exploreStore.selectedQueryId);
+const queryIdFromUrl = computed(() => route.query.query_id as string | undefined);
+
+// Computed property to determine if the query is savable/updatable
+const canSaveOrUpdateQuery = computed(() => {
+  return !!currentTeamId.value &&
+    !!currentSourceId.value &&
+    hasValidSource.value && // Ensure source is valid
+    (!!exploreStore.logchefqlCode?.trim() || !!exploreStore.rawSql?.trim());
+});
+
+// Handle updating an existing query
+async function handleUpdateQuery(queryId: string, formData: SaveQueryFormData) {
+  // Ensure we have the necessary IDs
+  if (!currentSourceId.value || !formData.team_id) {
+    toast({
+      title: 'Error',
+      description: 'Missing source or team ID for update.',
+      variant: 'destructive',
+      duration: TOAST_DURATION.ERROR
+    });
+    return;
+  }
+
+  try {
+    // Use the correct store action: updateTeamSourceQuery
+    const response = await savedQueriesStore.updateTeamSourceQuery(
+      formData.team_id,
+      currentSourceId.value, // Pass the current source ID
+      queryId,
+      {
+        // Payload only includes fields allowed by updateTeamSourceQuery's type
+        name: formData.name,
+        description: formData.description,
+        query_type: formData.query_type,
+        query_content: formData.query_content
+      }
+    );
+
+    if (response && response.success) {
+      showSaveQueryModal.value = false;
+      editQueryData.value = null; // Clear editing state
+
+      toast({
+        title: 'Success',
+        description: 'Query updated successfully.',
+        duration: TOAST_DURATION.SUCCESS,
+        variant: 'success'
+      });
+
+      // Optional: Refresh the list if needed, though store should be reactive
+      // await loadSourceQueries(currentTeamId.value, currentSourceId.value);
+
+    } else if (response) {
+      // Handle potential API error returned in response.error
+      throw new Error(getErrorMessage(response.error) || 'Failed to update query');
     }
   } catch (error) {
-    console.error("Error during query execution:", error);
+    console.error("Error updating query:", error);
+    toast({
+      title: 'Error',
+      description: getErrorMessage(error),
+      variant: 'destructive',
+      duration: TOAST_DURATION.ERROR
+    });
   }
-};
+}
 
-// Removed redundant watcher for lastExecutionTimestamp - relative time restoration is now handled in explore.ts executeQuery onSuccess/onError
+// Function to map quick range labels to relativeTime format
+function quickRangeLabelToRelativeTime(label: string): string | null {
+  // Use switch statement instead of object mapping to avoid type issues
+  switch (label) {
+    case 'Last 5m': return '5m';
+    case 'Last 15m': return '15m';
+    case 'Last 30m': return '30m';
+    case 'Last 1h': return '1h';
+    case 'Last 3h': return '3h';
+    case 'Last 6h': return '6h';
+    case 'Last 12h': return '12h';
+    case 'Last 24h': return '24h';
+    case 'Last 2d': return '2d';
+    case 'Last 7d': return '7d';
+    case 'Last 30d': return '30d';
+    case 'Last 90d': return '90d';
+    default: return null;
+  }
+}
 </script>
 
 <template>
@@ -1478,17 +1575,19 @@ const handleQueryExecution = async () => {
               <!-- Query Editor - only show when we have valid source and time range -->
               <template v-else-if="currentSourceId && hasValidSource && exploreStore.timeRange">
                 <div class="bg-card shadow-sm rounded-md overflow-hidden">
-                  <QueryEditor ref="queryEditorRef" :sourceId="currentSourceId" :teamId="currentTeamId ?? 0" :schema="sourceDetails?.columns?.reduce((acc: Record<string, { type: string }>, col: { name: string; type: string }) => {
-                    acc[col.name] = { type: col.type };
+                  <QueryEditor ref="queryEditorRef" :sourceId="currentSourceId" :teamId="currentTeamId ?? 0" :schema="(sourceDetails?.columns || []).reduce((acc, col) => {
+                    if (col.name && col.type) {
+                      acc[col.name] = { type: col.type };
+                    }
                     return acc;
-                  }, {} as Record<string, { type: string }>) || {}"
-                    :activeMode="exploreStore.activeMode === 'logchefql' ? 'logchefql' : 'clickhouse-sql'"
+                  }, {})" :activeMode="exploreStore.activeMode === 'logchefql' ? 'logchefql' : 'clickhouse-sql'"
                     :value="exploreStore.activeMode === 'logchefql' ? logchefQuery : sqlQuery" @change="(event) => event.mode === 'logchefql' ?
                       updateLogchefqlValue(event.query, event.isUserInput) :
                       updateSqlValue(event.query, event.isUserInput)"
                     :placeholder="exploreStore.activeMode === 'logchefql' ? 'Enter search criteria (e.g., level=&quot;error&quot; and status>400)' : 'Enter SQL query...'"
-                    :tsField="sourceDetails?._meta_ts_field || 'timestamp'" :tableName="activeSourceTableName"
-                    :showFieldsPanel="showFieldsPanel" @submit="handleQueryExecution"
+                    :tsField="sourceDetails?._meta_ts_field || 'timestamp'"
+                    :tableName="sourcesStore.getCurrentSourceTableName || ''" :showFieldsPanel="showFieldsPanel"
+                    @submit="() => handleQueryExecution('editor-submit')"
                     @update:activeMode="(mode, isModeSwitchOnly) => changeMode(mode === 'logchefql' ? 'logchefql' : 'sql', isModeSwitchOnly)"
                     @toggle-fields="showFieldsPanel = !showFieldsPanel" @select-saved-query="loadSavedQuery"
                     @save-query="handleSaveOrUpdateClick" class="border-0 border-b" />
@@ -1583,7 +1682,8 @@ const handleQueryExecution = async () => {
                   <Button variant="default" class="h-9 px-4 flex items-center gap-2 shadow-sm" :class="{
                     'bg-amber-500 hover:bg-amber-600 text-amber-foreground': isDirty && !isExecutingQuery,
                     'bg-primary hover:bg-primary/90 text-primary-foreground': isExecutingQuery
-                  }" :disabled="isExecutingQuery || !canExecuteQuery" @click="handleQueryExecution">
+                  }" :disabled="isExecutingQuery || !canExecuteQuery"
+                    @click="handleQueryExecution('manual-execution')">
                     <Play v-if="!isExecutingQuery" class="h-4 w-4" />
                     <RefreshCw v-else class="h-4 w-4 animate-spin" />
                     <span>{{ isDirty ? 'Run Query*' : 'Run Query' }}</span>

@@ -338,14 +338,18 @@ export function useQuery() {
   // Prepare the query for execution
   const prepareQueryForExecution = (): QueryResult => {
     try {
+      console.log("useQuery: Starting prepareQueryForExecution");
       const params = getCommonQueryParams();
       const mode = activeMode.value;
       const query = mode === 'logchefql' ? logchefQuery.value : sqlQuery.value;
+
+      console.log("useQuery: Preparing query - mode:", mode, "query:", query ? (query.length > 50 ? query.substring(0, 50) + '...' : query) : '(empty)');
 
       // Validate LogchefQL query before execution
       if (mode === 'logchefql' && query.trim()) {
         const validation = validateLogchefQLWithDetails(query);
         if (!validation.valid) {
+          console.log("useQuery: LogchefQL validation failed:", validation.error);
           queryError.value = validation.error || 'Invalid LogchefQL syntax';
           return {
             success: false,
@@ -358,6 +362,7 @@ export function useQuery() {
       else if (mode === 'sql' && query.trim()) {
         const validation = validateSQLWithDetails(query);
         if (!validation.valid) {
+          console.log("useQuery: SQL validation failed:", validation.error);
           queryError.value = validation.error || 'Invalid SQL syntax';
           return {
             success: false,
@@ -370,11 +375,16 @@ export function useQuery() {
       // Translate the mode to what QueryService expects
       const queryServiceMode = mode === 'logchefql' ? 'logchefql' : 'clickhouse-sql';
 
+      console.log("useQuery: Calling QueryService.prepareQueryForExecution");
       const result = QueryService.prepareQueryForExecution({
         mode: queryServiceMode,
         query,
         ...params
       });
+
+      console.log("useQuery: Query preparation result:", result.success ? "success" : "failed",
+                  result.error ? `Error: ${result.error}` : '',
+                  result.warnings?.length ? `Warnings: ${result.warnings.length}` : '');
 
       // Track warnings and errors
       sqlWarnings.value = result.warnings || [];
@@ -383,6 +393,7 @@ export function useQuery() {
       return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error("useQuery: Exception in prepareQueryForExecution:", errorMessage);
       queryError.value = errorMessage;
       return {
         success: false,

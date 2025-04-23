@@ -40,15 +40,15 @@ export function getFormattedTableName(source: any): string {
   return `${database}.${tableName}`; // Default fallback
 }
 
-// Helper to get the default time range (1 hour)
+// Helper to get the default time range (15 minutes)
 export function getDefaultTimeRange() {
   const now = new Date();
-  const oneHourAgo = new Date(now);
-  oneHourAgo.setHours(now.getHours() - 1); // One hour ago
+  const fifteenMinutesAgo = new Date(now);
+  fifteenMinutesAgo.setMinutes(now.getMinutes() - 15); // Fifteen minutes ago
 
   // Return timestamps in milliseconds
   return {
-    start: oneHourAgo.getTime(),
+    start: fifteenMinutesAgo.getTime(),
     end: now.getTime(),
   };
 }
@@ -142,8 +142,8 @@ export const useExploreStore = defineStore("explore", () => {
   function getTimestamps() {
     const { timeRange } = state.data.value;
     if (!timeRange) {
-      // If no time range is set, default to "now to 1 hour ago"
-      console.warn("No time range set, using default (now to 1 hour ago)");
+      // If no time range is set, default to "now to 15 minutes ago"
+      console.warn("No time range set, using default (now to 15 minutes ago)");
       return getDefaultTimeRange();
     }
 
@@ -250,12 +250,12 @@ export const useExploreStore = defineStore("explore", () => {
   function resetQueryStateToDefault() {
     console.log("Explore store: Resetting query state to default");
 
-    // Create a default time range (last hour)
+    // Create a default time range (last 15 minutes)
     const nowDt = now(getLocalTimeZone());
     const timeRange = {
       start: new CalendarDateTime(
         nowDt.year, nowDt.month, nowDt.day, nowDt.hour, nowDt.minute, nowDt.second
-      ).subtract({ hours: 1 }),
+      ).subtract({ minutes: 15 }),
       end: new CalendarDateTime(
         nowDt.year, nowDt.month, nowDt.day, nowDt.hour, nowDt.minute, nowDt.second
       )
@@ -264,8 +264,8 @@ export const useExploreStore = defineStore("explore", () => {
     // Set time range
     state.data.value.timeRange = timeRange;
 
-    // Set the relative time to "1h" since we're using a 1-hour window
-    state.data.value.selectedRelativeTime = "1h";
+    // Set the relative time to "15m" since we're using a 15-minute window
+    state.data.value.selectedRelativeTime = "15m";
 
     // Reset limit to default
     state.data.value.limit = 100;

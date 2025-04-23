@@ -27,6 +27,9 @@ export function useExploreUrlSync() {
   // A guard flag to prevent URL updates during the active loading of a page with relativeTime
   let preservingRelativeTime = false;
 
+  // Add a last initialization timestamp to prevent rapid re-initialization
+  let lastInitTimestamp = 0;
+
   // --- Internal Helper Functions ---
 
   function parseTimestamp(value: string | null | undefined): number | null {
@@ -71,6 +74,14 @@ export function useExploreUrlSync() {
   // --- Initialization Logic ---
 
   async function initializeFromUrl() {
+    // Prevent multiple initializations within 500ms of each other (reduced from 1000ms)
+    const now = Date.now();
+    if (now - lastInitTimestamp < 500) {
+      console.log("useExploreUrlSync: Skipping initialization - too soon after previous init");
+      return;
+    }
+    lastInitTimestamp = now;
+
     isInitializing.value = true;
     initializationError.value = null;
 
@@ -232,34 +243,34 @@ export function useExploreUrlSync() {
       const originalParams = { ...route.query };
       const hadRelativeTime = !!originalParams.relativeTime;
 
-      // Delay marking initialization as complete to prevent immediate URL updates
-      setTimeout(() => {
-        isInitializing.value = false;
+      // Mark initialization as complete *after* the next tick
+      isInitializing.value = false;
 
-        // Never auto-sync URL during load if we're preserving a relative time URL
-        if (!preservingRelativeTime) {
+      // Determine URL sync behavior *after* initialization is marked complete
+      // Never auto-sync URL during load if we're preserving a relative time URL
+      if (!preservingRelativeTime) {
           // Normal URL sync if no special handling is needed
           console.log('Safe to auto-sync URL now');
-        } else {
+      } else {
           // We're preserving a relative time parameter - special URL sync behavior
           console.log('Preserving relative time parameter in URL - no auto sync');
 
-          // Keep the preservation mode active for a bit
+          // Keep the preservation mode active for a bit longer
+          // (This timeout is for the preservation flag, not for isInitializing)
           setTimeout(() => {
             preservingRelativeTime = false;
             console.log('Relative time preservation mode deactivated');
-          }, 1000);
-        }
-      }, 50);
+          }, 2000); // Increase timeout to ensure initial query completes first
+      }
     }
   }
 
-  // Helper function to set default time range (last 1 hour)
+  // Helper function to set default time range (last 15 minutes)
   function setDefaultTimeRange() {
     const nowDt = now(getLocalTimeZone());
     const startDateTime = new CalendarDateTime(
       nowDt.year, nowDt.month, nowDt.day, nowDt.hour, nowDt.minute, nowDt.second
-    ).subtract({ hours: 1 });
+    ).subtract({ minutes: 15 });
     const endDateTime = new CalendarDateTime(
       nowDt.year, nowDt.month, nowDt.day, nowDt.hour, nowDt.minute, nowDt.second
     );
@@ -319,11 +330,18 @@ export function useExploreUrlSync() {
       // Always prefer to keep the existing URL parameter
       query.relativeTime = relativeTimeFromUrl;
 
-      // Also ensure store has this value to maintain consistency
-      if (exploreStore.selectedRelativeTime !== relativeTimeFromUrl) {
-        // Update store asynchronously to avoid circular updates
+      // Also ensure store has this value to maintain consistency ONLY IF NEEDED
+      // Check if the store's relative time is missing OR different from the URL's,
+      // AND we are not in the initial relative time preservation phase.
+      if (relativeTimeFromUrl && exploreStore.selectedRelativeTime !== relativeTimeFromUrl && !preservingRelativeTime) {
+        console.log(`syncUrlFromState: Store relative time (${exploreStore.selectedRelativeTime}) differs from URL (${relativeTimeFromUrl}). Updating store.`);
+        // Update store asynchronously ONLY if the store doesn't match the URL source of truth
+        // and we are not actively preserving the initial relative time from the URL.
         setTimeout(() => {
-          exploreStore.setRelativeTimeRange(relativeTimeFromUrl);
+          // Double check before setting to avoid race conditions
+          if (exploreStore.selectedRelativeTime !== relativeTimeFromUrl) {
+             exploreStore.setRelativeTimeRange(relativeTimeFromUrl);
+          }
         }, 0);
       }
     }
@@ -413,11 +431,18 @@ export function useExploreUrlSync() {
       // Always prefer to keep the existing URL parameter
       query.relativeTime = relativeTimeFromUrl;
 
-      // Also ensure store has this value to maintain consistency
-      if (exploreStore.selectedRelativeTime !== relativeTimeFromUrl) {
-        // Update store asynchronously to avoid circular updates
+      // Also ensure store has this value to maintain consistency ONLY IF NEEDED
+      // Check if the store's relative time is missing OR different from the URL's,
+      // AND we are not in the initial relative time preservation phase.
+      if (relativeTimeFromUrl && exploreStore.selectedRelativeTime !== relativeTimeFromUrl && !preservingRelativeTime) {
+        console.log(`pushQueryHistoryEntry: Store relative time (${exploreStore.selectedRelativeTime}) differs from URL (${relativeTimeFromUrl}). Updating store.`);
+        // Update store asynchronously ONLY if the store doesn't match the URL source of truth
+        // and we are not actively preserving the initial relative time from the URL.
         setTimeout(() => {
-          exploreStore.setRelativeTimeRange(relativeTimeFromUrl);
+          // Double check before setting to avoid race conditions
+          if (exploreStore.selectedRelativeTime !== relativeTimeFromUrl) {
+             exploreStore.setRelativeTimeRange(relativeTimeFromUrl);
+          }
         }, 0);
       }
 
