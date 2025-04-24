@@ -13,7 +13,7 @@ import (
 // Default values
 const (
 	DefaultQueryLimit          = 100
-	HealthCheckTimeout         = 5 * time.Second
+	HealthCheckTimeout         = 1 * time.Second // Reduce to 1 second for faster health checks
 	DefaultHealthCheckInterval = 30 * time.Second
 )
 
@@ -128,7 +128,15 @@ func (m *Manager) updateHealthStatus(sourceID models.SourceID, isHealthy bool, e
 
 // checkSource checks a single source and updates the health map.
 // It attempts to reconnect if the connection is unhealthy.
+// This function now respects timeouts better and avoids blocking for too long.
 func (m *Manager) checkSource(sourceID models.SourceID) {
+	start := time.Now()
+	defer func() {
+		m.logger.Debug("health check completed", 
+			"source_id", sourceID, 
+			"duration_ms", time.Since(start).Milliseconds())
+	}()
+	
 	// Get the client connection. GetConnection handles locking internally.
 	client, err := m.GetConnection(sourceID)
 
@@ -138,21 +146,59 @@ func (m *Manager) checkSource(sourceID models.SourceID) {
 		return
 	}
 
-	// Perform the actual health check (Ping).
-	ctx, cancel := context.WithTimeout(context.Background(), HealthCheckTimeout)
-	defer cancel()
-
-	err = client.Ping(ctx) // Use the Ping method
-	if err != nil {
+	// Create parent context with timeout
+	rootCtx, rootCancel := context.WithTimeout(context.Background(), HealthCheckTimeout*2) // Parent timeout
+	defer rootCancel()
+	
+	// Perform the actual health check (Ping) with its own timeout
+	pingCtx, pingCancel := context.WithTimeout(rootCtx, HealthCheckTimeout)
+	pingDone := make(chan error, 1)
+	
+	// Run ping in goroutine to respect timeout precisely
+	go func() {
+		pingDone <- client.Ping(pingCtx)
+	}()
+	
+	// Wait for ping to complete or timeout
+	var pingErr error
+	select {
+	case pingErr = <-pingDone:
+		// Ping completed (either success or error)
+		pingCancel() // Cancel the context as we already have the result
+	case <-pingCtx.Done():
+		// Timeout or parent context cancellation
+		pingCancel()
+		pingErr = pingCtx.Err()
+		m.logger.Warn("ping timed out during health check", 
+			"source_id", sourceID,
+			"timeout", HealthCheckTimeout)
+	}
+	
+	// Handle the ping result
+	if pingErr != nil {
 		m.logger.Warn("ping failed during health check, attempting reconnect", 
 			"source_id", sourceID, 
-			"error", err)
+			"error", pingErr)
 		
-		// Attempt to reconnect
-		reconnectCtx, reconnectCancel := context.WithTimeout(context.Background(), HealthCheckTimeout)
-		defer reconnectCancel()
+		// Attempt to reconnect with timeout
+		reconnectCtx, reconnectCancel := context.WithTimeout(rootCtx, HealthCheckTimeout)
+		reconnectDone := make(chan error, 1)
 		
-		if reconnectErr := client.Reconnect(reconnectCtx); reconnectErr != nil {
+		go func() {
+			reconnectDone <- client.Reconnect(reconnectCtx)
+		}()
+		
+		// Wait for reconnect to complete or timeout
+		var reconnectErr error
+		select {
+		case reconnectErr = <-reconnectDone:
+			reconnectCancel()
+		case <-reconnectCtx.Done():
+			reconnectCancel()
+			reconnectErr = fmt.Errorf("reconnection timed out after %v", HealthCheckTimeout)
+		}
+		
+		if reconnectErr != nil {
 			m.logger.Error("reconnection attempt failed", 
 				"source_id", sourceID, 
 				"error", reconnectErr)

@@ -22,6 +22,36 @@ export interface QueryCondition {
  */
 export class QueryService {
   /**
+   * Generates a default SQL template without specific dates (uses placeholders)
+   * @param tableName The table name to use
+   * @param tsField The timestamp field name
+   * @param limit The query limit
+   * @returns SQL template string with placeholder for time range
+   */
+  static generateDefaultSQLTemplate(tableName: string, tsField: string, limit: number): string {
+    // Format table and field names
+    const formattedTableName = tableName.includes('`') || tableName.includes('.')
+      ? tableName
+      : `\`${tableName}\``;
+    
+    const formattedTsField = tsField.includes('`') ? tsField : `\`${tsField}\``;
+    
+    // Get user timezone for the template
+    const userTimezone = getUserTimezone();
+    const formattedTimezone = formatTimezoneForSQL(userTimezone);
+    
+    // Create a template with placeholders for actual dates
+    return [
+      `SELECT *`,
+      `FROM ${formattedTableName}`,
+      `WHERE ${formattedTsField} BETWEEN toDateTime('{{startTime}}', '${formattedTimezone}')`,
+      `AND toDateTime('{{endTime}}', '${formattedTimezone}')`,
+      `ORDER BY ${formattedTsField} DESC`,
+      `LIMIT ${limit}`
+    ].join('\n');
+  }
+
+  /**
    * Translates a LogchefQL query to SQL with proper error handling
    * @param options Query generation options including LogchefQL
    * @returns QueryResult with SQL and metadata

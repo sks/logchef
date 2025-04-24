@@ -981,24 +981,21 @@ watch(
 );
 
 // Add a separate deep watcher specifically for time range changes
+// NOTE: We no longer automatically fetch data when time range changes
+// Data will only be fetched when a query is executed
 watch(
     () => props.timeRange,
     (newRange, oldRange) => {
-        // Show loading state and fetch data when time range changes significantly
-
         // Skip if no valid source
         if (!hasValidSource.value || !currentSourceId.value) return;
 
-        // Only trigger if time range actually changed
+        // Only handle UI updates if time range actually changed
         if (newRange && oldRange &&
             (newRange.start?.toString() !== oldRange.start?.toString() ||
                 newRange.end?.toString() !== oldRange.end?.toString())) {
 
-            // Show loading state immediately to cover the data fetch delay
-            isChartLoading.value = true;
-
             // Only clear data if this is a completely different time range
-            // This prevents showing outdated data
+            // This prevents showing outdated data while maintaining the dirty state
             if (histogramData.value.length > 0) {
                 const firstBucketTime = new Date(histogramData.value[0].bucket).getTime();
                 const lastBucketTime = new Date(histogramData.value[histogramData.value.length - 1].bucket).getTime();
@@ -1018,8 +1015,8 @@ watch(
                 }
             }
 
-            // Fetch new data for the updated time range
-            debouncedFetchHistogramData();
+            // We don't fetch new data here anymore - it will be fetched when the query is executed
+            console.log("LogHistogram: Time range changed, waiting for query execution to refresh data");
         }
     },
     { deep: true }
