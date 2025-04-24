@@ -22,7 +22,6 @@ A Source in LogChef represents a distinct log stream that maps directly to a tab
 app-production-logs   → Production application logs
 nginx-access-logs     → Web server access logs
 kubernetes-events     → Kubernetes cluster events
-monitoring-metrics    → System monitoring data
 ```
 
 ## Teams
