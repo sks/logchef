@@ -1,11 +1,11 @@
-blank_issues_enabled: false
+blank_issues_enabled: true
 contact_links:
   - name: LogChef Documentation
-    url: https://github.com/mr-karan/logchef#readme
+    url: https://logchef.app
     about: Check our documentation before creating an issue
-  # - name: GitHub Discussions
-  #   url: https://github.com/mr-karan/logchef/discussions
-  #   about: Please ask and answer questions here
+  - name: GitHub Discussions
+    url: https://github.com/mr-karan/logchef/discussions
+    about: Please ask and answer questions here
   # - name: Security Issue
   #   url: https://github.com/mr-karan/logchef/security/policy
   #   about: Please report security vulnerabilities directly to the maintainers

@@ -114,11 +114,14 @@ const lastParsedQuery = ref<{
 const showFieldsPanel = ref(false)
 const queryEditorRef = ref<ComponentPublicInstance<{
   focus: (revealLastPosition?: boolean) => void;
+  code?: { value: string };
+  toggleSqlEditorVisibility?: () => void;
 }> | null>(null)
 const isLoadingQuery = ref(false)
 const editQueryData = ref<SavedTeamQuery | null>(null)
 const initialQueryExecuted = ref(false)
 const timeRangeSelectorRef = ref<InstanceType<typeof TimeRangeSelector> | null>(null)
+const sortKeysInfoOpen = ref(false) // State for sort keys info expandable section
 
 // Query execution deduplication
 const executingQueryId = ref<string | null>(null)
@@ -538,6 +541,9 @@ watch(
       return
     }
 
+    // Reset sort keys info panel state on source change
+    sortKeysInfoOpen.value = false
+
     if (newSourceId !== oldSourceId || (!oldSourceId && newSourceId)) {
       // Reset queries when source changes
       resetQueriesForSourceChange()
@@ -849,6 +855,63 @@ const openDatePicker = () => {
   }
 }
 
+// Function to generate example query based on sort keys
+const getSortKeyExampleQuery = (): string => {
+  if (!sourceDetails.value?.sort_keys?.length) return ""
+  
+  // Filter out timestamp field if it's the last sort key
+  const relevantKeys = sourceDetails.value.sort_keys.filter(key => 
+    key !== sourceDetails.value?._meta_ts_field || 
+    sourceDetails.value.sort_keys.indexOf(key) < sourceDetails.value.sort_keys.length - 1
+  )
+  
+  // Generate query example with the keys
+  if (relevantKeys.length === 0) return ""
+  
+  return relevantKeys.map(key => `${key}="example"`).join(' and ')
+}
+
+// Function to add sort key example to the query editor
+const addSortKeyExample = () => {
+  if (activeMode.value !== 'logchefql') return
+  
+  const exampleQuery = getSortKeyExampleQuery()
+  if (!exampleQuery) return
+  
+  // Get current query
+  let currentQuery = logchefQuery.value?.trim() || ''
+  
+  // If there's already a query, append the new condition with "and"
+  if (currentQuery) {
+    // Check if we need to wrap existing query in parentheses
+    if (currentQuery.includes(' or ') && !currentQuery.startsWith('(')) {
+      currentQuery = `(${currentQuery})`
+    }
+    currentQuery = `${currentQuery} and ${exampleQuery}`
+  } else {
+    currentQuery = exampleQuery
+  }
+  
+  // Update the query
+  logchefQuery.value = currentQuery
+  
+  // Focus the editor and move cursor to the end
+  nextTick(() => {
+    queryEditorRef.value?.focus(true)
+    
+    // Expand the sort keys info panel
+    sortKeysInfoOpen.value = true
+    
+    // Show toast notification
+    toast({
+      title: "Sort Key Filter Added",
+      description: "Example filter added to query. Customize the values as needed.",
+      duration: TOAST_DURATION.INFO,
+      variant: "default"
+    })
+  })
+}
+
 // Function to copy current URL to clipboard
 const copyUrlToClipboard = () => {
   try {
@@ -1076,19 +1139,61 @@ onBeforeUnmount(() => {
                     class="border-0 border-b" 
                   />
 
-                  <!-- Sort Key Optimization Hint -->
+                  <!-- Sort Key Optimization Hint - Concise Version -->
                   <div
                     v-if="sourceDetails?.sort_keys && (sourceDetails.sort_keys.length > 1 || (sourceDetails.sort_keys.length === 1 && sourceDetails.sort_keys[0] !== sourceDetails?._meta_ts_field))"
-                    class="border-t bg-blue-50 dark:bg-blue-950/20 px-3 py-1.5 text-xs text-blue-700 dark:text-blue-300">
-                    <div class="flex items-center">
-                      <span class="inline-flex items-center">
-                        <svg class="text-blue-600 dark:text-blue-400 h-4 w-4 mr-2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    class="border-t bg-blue-50 dark:bg-blue-900/30 px-3 py-1.5 text-xs">
+                    <div class="flex items-center justify-between">
+                      <button 
+                        class="group flex flex-wrap items-center gap-x-1.5 text-blue-700 dark:text-blue-300 focus:outline-none py-0.5" 
+                        @click="sortKeysInfoOpen = !sortKeysInfoOpen">
+                        <svg class="h-3.5 w-3.5 flex-shrink-0 mt-0.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                           <circle cx="12" cy="12" r="10"></circle>
                           <line x1="12" y1="16" x2="12" y2="12"></line>
                           <line x1="12" y1="8" x2="12.01" y2="8"></line>
                         </svg>
-                        <span>ClickHouse Performance Tip: Filter by sort keys to improve query speed</span>
-                      </span>
+                        <span class="font-medium">ClickHouse Performance Tip:</span>
+                        <span>Filter by</span>
+                        <div class="inline-flex gap-1.5 flex-wrap items-center">
+                          <span v-for="(key, index) in sourceDetails.sort_keys.filter(k => k !== sourceDetails?._meta_ts_field || index === 0)" 
+                                :key="key" 
+                                class="inline-block px-1.5 bg-blue-100 dark:bg-blue-900/30 rounded text-blue-800 dark:text-blue-200 font-mono leading-relaxed">
+                            {{ key }}
+                          </span>
+                        </div>
+                        <svg 
+                          class="h-3.5 w-3.5 transition-transform duration-200 ml-1 mt-0.5 group-hover:text-blue-800 dark:group-hover:text-blue-200" 
+                          :class="{ 'rotate-180': sortKeysInfoOpen }"
+                          xmlns="http://www.w3.org/2000/svg" 
+                          viewBox="0 0 24 24" 
+                          fill="none" 
+                          stroke="currentColor" 
+                          stroke-width="2" 
+                          stroke-linecap="round" 
+                          stroke-linejoin="round">
+                          <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                      </button>
+                      <button 
+                        v-if="activeMode === 'logchefql'" 
+                        @click="addSortKeyExample"
+                        class="ml-2 px-2 py-0.5 text-xs bg-blue-600/10 hover:bg-blue-600/20 dark:bg-blue-700/20 dark:hover:bg-blue-700/30 rounded transition-colors focus:outline-none text-blue-700 dark:text-blue-300 flex-shrink-0">
+                        Add Example
+                      </button>
+                    </div>
+                    
+                    <!-- Expandable Info Section -->
+                    <div v-if="sortKeysInfoOpen" class="mt-2 bg-white/40 dark:bg-slate-900/40 p-2 rounded border border-blue-100 dark:border-blue-900/30">                      
+                      <p class="mb-2 text-slate-700 dark:text-slate-300">
+                        ClickHouse queries perform faster when filtering by sort keys in the correct order.
+                      </p>
+                      
+                      <div>
+                        <p class="font-medium mb-1 text-slate-800 dark:text-slate-200">Example query:</p>
+                        <div class="bg-blue-50 dark:bg-blue-900/20 p-1.5 rounded font-mono border border-blue-100 dark:border-blue-900/30">
+                          {{ getSortKeyExampleQuery() }}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>

@@ -63,6 +63,22 @@
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
+        
+        <!-- SQL Toggle Button - Only show when in SQL mode -->
+        <TooltipProvider v-if="props.activeMode === 'clickhouse-sql'">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="outline" size="sm" class="h-7 gap-1" @click="toggleSqlEditorVisibility">
+                <EyeOff v-if="isEditorVisible" class="h-3.5 w-3.5" />
+                <Eye v-else class="h-3.5 w-3.5" />
+                <span class="text-xs">{{ isEditorVisible ? 'Hide' : 'Show' }} SQL</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              <p>{{ isEditorVisible ? 'Hide' : 'Show' }} SQL query editor</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
 
         <!-- Saved Queries Dropdown -->
         <SavedQueriesDropdown :selected-source-id="props.sourceId" :selected-team-id="props.teamId"
@@ -99,9 +115,6 @@
                 <div><code class="bg-muted px-1 rounded">GROUP BY user ORDER BY count() DESC</code></div>
                 <div class="pt-1"><em>Time range & limit applied if not specified. Use standard ClickHouse SQL.</em>
                 </div>
-                <div class="pt-1 text-xs text-amber-500/80"><em>Note: Custom/complex SQL queries won't auto-update with
-                    time
-                    range changes.</em></div>
               </div>
             </div>
           </HoverCardContent>
@@ -110,7 +123,7 @@
     </div>
 
     <!-- Monaco Editor Container -->
-    <div class="editor-wrapper" :class="{ 'is-focused': editorFocused }">
+    <div class="editor-wrapper" :class="{ 'is-focused': editorFocused }" v-show="isEditorVisible || props.activeMode === 'logchefql'">
       <div class="editor-container" :class="{
         'is-empty': isEditorEmpty
       }" :style="{ height: `${editorHeight}px` }" :data-placeholder="currentPlaceholder" :data-mode="props.activeMode">
@@ -119,6 +132,20 @@
           :language="props.activeMode" :options="monacoOptions" @mount="handleMount" @update:value="handleEditorChange"
           class="h-full w-full" />
       </div>
+    </div>
+    
+    <!-- SQL Preview when editor is hidden -->
+    <div v-if="!isEditorVisible && props.activeMode === 'clickhouse-sql' && !isEditorEmpty" 
+         class="sql-preview p-3 border border-border rounded-md bg-muted/30 text-sm font-mono overflow-hidden cursor-pointer"
+         @click="isEditorVisible = true">
+      <div class="flex items-center justify-between">
+        <div class="text-muted-foreground text-xs font-medium mb-1">SQL Query (collapsed)</div>
+        <Button variant="ghost" size="sm" class="h-6 px-2" @click.stop="isEditorVisible = true">
+          <Eye class="h-3.5 w-3.5 mr-1" />
+          <span class="text-xs">Show</span>
+        </Button>
+      </div>
+      <div class="truncate text-xs text-muted-foreground">{{ editorContent }}</div>
     </div>
 
     <!-- Error Message Display -->
@@ -143,7 +170,7 @@ import { ref, computed, shallowRef, watch, onMounted, onBeforeUnmount, onActivat
 import * as monaco from "monaco-editor";
 import { useDark } from "@vueuse/core";
 import { VueMonacoEditor } from "@guolao/vue-monaco-editor";
-import { HelpCircle, PanelRightOpen, PanelRightClose, AlertCircle, XCircle, FileEdit, FilePlus2, Search, Code2 } from "lucide-vue-next";
+import { HelpCircle, PanelRightOpen, PanelRightClose, AlertCircle, XCircle, FileEdit, FilePlus2, Search, Code2, Eye, EyeOff } from "lucide-vue-next";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import SavedQueriesDropdown from '@/components/collections/SavedQueriesDropdown.vue';
@@ -210,6 +237,7 @@ const validationError = ref<string | null>(null);
 const isProgrammaticChange = ref(false); // Flag to prevent update loops
 const isDisposing = ref(false); // Flag to prevent operations during disposal
 const activeDisposables = ref<MonacoDisposable[]>([]); // Track all disposables
+const isEditorVisible = ref(true); // New state for SQL editor visibility
 
 // --- Computed Properties ---
 const theme = computed(() => (isDark.value ? "logchef-dark" : "logchef-light"));
@@ -803,12 +831,35 @@ onActivated(() => {
   }
 });
 
+// Toggle SQL editor visibility
+const toggleSqlEditorVisibility = () => {
+  isEditorVisible.value = !isEditorVisible.value;
+  
+  // If we're showing the editor again, focus it after a brief delay
+  if (isEditorVisible.value) {
+    nextTick(() => {
+      setTimeout(() => {
+        focusEditor(false);
+      }, 50);
+    });
+  }
+};
+
+// Watch for mode changes to reset visibility
+watch(() => props.activeMode, (newMode) => {
+  // Always show editor when switching modes
+  if (newMode === 'logchefql') {
+    isEditorVisible.value = true;
+  }
+});
+
 // --- Expose ---
 defineExpose({
   submitQuery,
   // clearEditor is now handled by the parent
   focus: focusEditor, // Expose focus method
-  code: computed(() => editorContent.value)
+  code: computed(() => editorContent.value),
+  toggleSqlEditorVisibility // Expose toggle method
 });
 
 
@@ -1281,5 +1332,15 @@ const handleNewQueryClick = () => {
 
 :deep([role="tab"]) {
   padding: 6px 12px !important;
+}
+
+/* Styles for SQL preview when editor is hidden */
+.sql-preview {
+  border-radius: 0 0 6px 6px;
+  transition: background-color 0.2s;
+}
+
+.sql-preview:hover {
+  background-color: hsl(var(--muted) / 0.6);
 }
 </style>

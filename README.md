@@ -15,7 +15,7 @@ Logchef combines the power of Clickhouse for high-speed log storage with an intu
 
 ## Demo
 
-Visit [demo.logchef.com](https://demo.logchef.com) to see Logchef in action.
+Visit [demo.logchef.app](https://demo.logchef.app) to see Logchef in action.
 
 ## Documentation
 
