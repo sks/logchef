@@ -7,6 +7,7 @@ import { getErrorMessage } from '@/api/types';
 import type { TimeRange, QueryResult } from '@/types/query';
 import { validateLogchefQLWithDetails } from '@/utils/logchefql/api';
 import { validateSQLWithDetails } from '@/utils/clickhouse-sql';
+import { createTimeRangeCondition } from '@/utils/time-utils';
 import { useExploreUrlSync } from './useExploreUrlSync';
 
 // Define the valid editor modes
@@ -337,9 +338,55 @@ export function useQuery() {
 
   // Handle time/limit changes
   const handleTimeRangeUpdate = () => {
-    // In SQL mode, we might want to update the time range in the query
-    // but this is now handled in LogExplorer.vue with more comprehensive patterns
-    // This function now just acts as a notification handler for dirty state
+    // Only update SQL query if in SQL mode
+    if (activeMode.value === 'sql') {
+      const currentSql = sqlQuery.value?.trim() || '';
+      if (!currentSql) return;
+      
+      try {
+        // Get current source details
+        const tableName = sourcesStore.getCurrentSourceTableName;
+        const tsField = sourcesStore.currentSourceDetails?._meta_ts_field || 'timestamp';
+        
+        // Check if the SQL query contains toDateTime function calls
+        if (currentSql.includes('toDateTime(')) {
+          // Instead of generating an entirely new query, we'll selectively update
+          // the time range portion while preserving the rest of the query
+          
+          // Extract the WHERE clause and analyze it
+          const whereClauseMatch = /WHERE\s+(.*?)(?:\s+ORDER\s+BY|\s+GROUP\s+BY|\s+LIMIT|\s*$)/is.exec(currentSql);
+          if (whereClauseMatch) {
+            const whereClause = whereClauseMatch[1];
+            
+            // Look for time range condition with toDateTime
+            const timeConditionRegex = new RegExp(`\`?${tsField}\`?\\s+BETWEEN\\s+toDateTime\\([^)]+\\)\\s+AND\\s+toDateTime\\([^)]+\\)`, 'i');
+            const timeConditionMatch = timeConditionRegex.exec(whereClause);
+            
+            if (timeConditionMatch) {
+              // Generate the new time condition
+              const newTimeCondition = createTimeRangeCondition(tsField, exploreStore.timeRange as TimeRange, true);
+              
+              // Replace the old time condition with the new one in the full SQL
+              const updatedSql = currentSql.replace(timeConditionMatch[0], newTimeCondition);
+              
+              if (updatedSql !== currentSql) {
+                sqlQuery.value = updatedSql;
+                exploreStore.setRawSql(updatedSql);
+                console.log("useQuery: Updated time range in SQL query while preserving other conditions");
+              }
+            } else {
+              console.log("useQuery: Couldn't find time range condition pattern to update");
+            }
+          } else {
+            console.log("useQuery: Couldn't find WHERE clause to update time range");
+          }
+        } else {
+          console.log("useQuery: SQL query doesn't contain toDateTime calls, skipping time update");
+        }
+      } catch (error) {
+        console.error("useQuery: Error updating time range in SQL:", error);
+      }
+    }
     
     // Log for debugging
     console.log("useQuery: handleTimeRangeUpdate called, current dirty state:", isDirty.value, 

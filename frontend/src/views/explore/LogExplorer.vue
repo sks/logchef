@@ -220,15 +220,40 @@ watch(() => activeMode.value, (newMode, oldMode) => {
     lastParsedQuery.value = result
   }
 
-  // If switching to SQL mode, ensure the table name is correct
+  // If switching to SQL mode, ensure the query is updated with current values
   if (newMode !== oldMode && newMode === 'sql') {
-    // Get current source details from the store
-    const tableName = sourcesStore.getCurrentSourceTableName
-    if (tableName) {
-      // Update SQL query with the current table name
-      const currentSql = sqlQuery.value?.trim() || ''
-      if (currentSql) {
-        // Check if query has a FROM clause
+    // Important: The actual LogchefQL to SQL translation happens in useQuery's changeMode function
+    // We DO NOT want to override that translation here - it would lose the user's query conditions
+    
+    // The only case where we need to generate a fresh SQL query is when there's no existing SQL
+    // and no LogchefQL content to translate (empty query state)
+    const hasLogchefQL = logchefQuery.value?.trim()
+    const hasSql = sqlQuery.value?.trim()
+    
+    if (!hasLogchefQL && !hasSql) {
+      // Only in this case, generate a default SQL with current timestamps
+      const tableName = sourcesStore.getCurrentSourceTableName
+      const tsField = sourcesStore.currentSourceDetails?._meta_ts_field || 'timestamp'
+      
+      if (tableName) {
+        const result = QueryService.generateDefaultSQL({
+          tableName,
+          tsField,
+          timeRange: exploreStore.timeRange || {},
+          limit: exploreStore.limit
+        })
+        
+        if (result.success) {
+          sqlQuery.value = result.sql
+          exploreStore.setRawSql(result.sql)
+        }
+      }
+    } else if (hasSql) {
+      // If there's existing SQL but no LogchefQL, we should just update the table name
+      // This preserves any custom SQL the user might have entered directly
+      const tableName = sourcesStore.getCurrentSourceTableName
+      if (tableName) {
+        const currentSql = sqlQuery.value
         const fromMatch = /\bFROM\s+(`?[\w.]+`?)/i.exec(currentSql)
         if (fromMatch) {
           // Replace old table name with new one, preserving backticks if present
@@ -244,6 +269,7 @@ watch(() => activeMode.value, (newMode, oldMode) => {
         }
       }
     }
+    // If hasLogchefQL is true, the translation is handled by useQuery's changeMode
   }
 })
 
