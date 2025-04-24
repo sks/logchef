@@ -212,23 +212,33 @@ func checkTableExists(ctx context.Context, client *clickhouse.Client, log *slog.
 		return false
 	}
 
-	// Use a short timeout for this check
-	checkCtx, cancel := context.WithTimeout(ctx, 3*time.Second) // 3-second timeout for the check
+	// Use a very short timeout for this check
+	checkCtx, cancel := context.WithTimeout(ctx, 1*time.Second) // 1-second timeout for quick health checks
 	defer cancel()
 
 	query := fmt.Sprintf("SELECT 1 FROM `%s`.`%s` LIMIT 1", database, table)
-	_, err := client.Query(checkCtx, query)
-	if err != nil {
-		// Log the error for debugging, but don't treat it as a service failure here.
-		log.Debug("table existence check failed",
+
+	// Create a channel for the query result to respect timeout precisely
+	done := make(chan bool, 1)
+
+	// Run query in a goroutine to respect timeout
+	go func() {
+		_, err := client.Query(checkCtx, query)
+		done <- (err == nil)
+	}()
+
+	// Wait for query to complete or timeout
+	select {
+	case result := <-done:
+		return result
+	case <-checkCtx.Done():
+		log.Debug("table existence check timed out",
 			"database", database,
 			"table", table,
-			"query", query,
-			"error", err.Error(), // Use Error() for concise logging
+			"timeout", "1s",
 		)
 		return false
 	}
-	return true
 }
 
 // --- Source Management Functions ---
@@ -259,7 +269,15 @@ func GetSourcesWithDetails(ctx context.Context, db *sqlite.DB, chDB *clickhouse.
 			source.IsConnected = false
 		} else {
 			// Perform a quick check to see if the table is queryable
-			source.IsConnected = checkTableExists(ctx, client, log, source.Connection.Database, source.Connection.TableName)
+			// First try a very quick health check that will abort after 1 second
+			if client.QuickHealthCheck(ctx) {
+				// If basic ping succeeds, check if the table is queryable
+				source.IsConnected = checkTableExists(ctx, client, log, source.Connection.Database, source.Connection.TableName)
+			} else {
+				// Quick ping failed, mark as disconnected without doing table check
+				source.IsConnected = false
+				log.Debug("quick health check failed for source", "source_id", source.ID)
+			}
 
 			// Only fetch schema details if source is connected
 			if source.IsConnected {
@@ -301,22 +319,41 @@ func GetSourcesWithDetails(ctx context.Context, db *sqlite.DB, chDB *clickhouse.
 	return sources, nil
 }
 
-// ListSources returns all sources with their connection status and schema details
+// ListSources returns all sources with basic connection status but without schema details.
+// This is optimized for performance in list views where the schema isn't needed.
 func ListSources(ctx context.Context, db *sqlite.DB, chDB *clickhouse.Manager, log *slog.Logger) ([]*models.Source, error) {
-	// First get the basic source records from the database
+	// Get the basic source records from the database
 	sources, err := db.ListSources(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error listing sources: %w", err)
 	}
 
-	// Extract source IDs
-	sourceIDs := make([]models.SourceID, 0, len(sources))
-	for _, source := range sources {
-		sourceIDs = append(sourceIDs, source.ID)
+	// Check connection status for each source
+	for i := range sources {
+		source := sources[i]
+		if source == nil {
+			continue
+		}
+
+		// Default to not connected
+		source.IsConnected = false
+
+		// Attempt to get client and perform a quick health check
+		client, err := chDB.GetConnection(source.ID)
+		if err == nil {
+			// Only check if we got a valid client
+			source.IsConnected = client.QuickHealthCheck(ctx)
+		}
+
+		// Clear schema-related fields to avoid sending unnecessary data
+		source.Columns = nil
+		source.Schema = ""
+		source.Engine = ""
+		source.EngineParams = nil
+		source.SortKeys = nil
 	}
 
-	// Fetch detailed information for all sources
-	return GetSourcesWithDetails(ctx, db, chDB, log, sourceIDs)
+	return sources, nil
 }
 
 // GetSource retrieves a source by ID including connection status and schema
@@ -343,8 +380,15 @@ func GetSource(ctx context.Context, db *sqlite.DB, chDB *clickhouse.Manager, log
 			"error", err)
 		source.IsConnected = false
 	} else {
-		// Perform a quick check to see if the table is queryable
-		source.IsConnected = checkTableExists(ctx, client, log, source.Connection.Database, source.Connection.TableName)
+		// First try a very quick health check that will abort after 1 second
+		if client.QuickHealthCheck(ctx) {
+			// If basic ping succeeds, check if the table is queryable
+			source.IsConnected = checkTableExists(ctx, client, log, source.Connection.Database, source.Connection.TableName)
+		} else {
+			// Quick ping failed, mark as disconnected without doing table check
+			source.IsConnected = false
+			log.Debug("quick health check failed for source", "source_id", source.ID)
+		}
 
 		// Fetch the table schema and CREATE statement only if the source is connected
 		if source.IsConnected {

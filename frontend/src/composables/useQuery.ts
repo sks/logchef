@@ -12,6 +12,14 @@ import { useExploreUrlSync } from './useExploreUrlSync';
 // Define the valid editor modes
 type EditorMode = 'logchefql' | 'sql';
 
+// Add an interface for tracking why a query is dirty
+interface DirtyStateReason {
+  timeRangeChanged: boolean;
+  limitChanged: boolean;
+  queryChanged: boolean;
+  modeChanged: boolean;
+}
+
 /**
  * Comprehensive query management composable
  * Combines query building, mode switching, and execution
@@ -29,6 +37,12 @@ export function useQuery() {
   const hasRunQuery = ref(false);
   const isFromUrl = ref(true); // Track if current content came from URL
   const initialQueryExecution = ref(true); // Flag to track initial execution from URL
+  const dirtyReason = ref<DirtyStateReason>({
+    timeRangeChanged: false,
+    limitChanged: false,
+    queryChanged: false,
+    modeChanged: false
+  });
 
   // Computed query content
   const logchefQuery = computed({
@@ -76,6 +90,14 @@ export function useQuery() {
 
   // Check if query state is dirty (needs execution)
   const isDirty = computed(() => {
+    // Reset the dirty reasons
+    dirtyReason.value = {
+      timeRangeChanged: false,
+      limitChanged: false,
+      queryChanged: false,
+      modeChanged: false
+    };
+
     // If we're still in the initial query execution phase and the content came from URL,
     // it shouldn't be marked as dirty
     if (initialQueryExecution.value && isFromUrl.value) {
@@ -86,25 +108,46 @@ export function useQuery() {
     if (!lastState) {
       // If no previous state, only consider dirty if there's actually query content
       // AND it was not loaded from URL
-      return ((logchefQuery.value && logchefQuery.value.trim() !== '') ||
+      const hasQuery = ((logchefQuery.value && logchefQuery.value.trim() !== '') ||
              (sqlQuery.value && sqlQuery.value.trim() !== '')) &&
              !isFromUrl.value;
+              
+      if (hasQuery) {
+        dirtyReason.value.queryChanged = true;
+      }
+      
+      return hasQuery;
     }
 
     // Determine if time range changed
-    const timeRangeChanged = JSON.stringify(exploreStore.timeRange) !== lastState.timeRange;
+    // Force trim any long strings for more reliable comparison
+    const currentTimeRangeJSON = JSON.stringify(exploreStore.timeRange);
+    const lastTimeRangeJSON = lastState.timeRange;
+    
+    const timeRangeChanged = currentTimeRangeJSON !== lastTimeRangeJSON;
+    dirtyReason.value.timeRangeChanged = timeRangeChanged;
+    
+    // Debug timeRange comparison
+    console.log("useQuery: isDirty calculation - timeRange comparison:",
+               "current:", currentTimeRangeJSON.substring(0, 50) + "...",
+               "lastState:", lastTimeRangeJSON.substring(0, 50) + "...",
+               "areEqual:", currentTimeRangeJSON === lastTimeRangeJSON,
+               "Definitely dirty?", timeRangeChanged);
 
     // Determine if limit changed
     const limitChanged = exploreStore.limit !== lastState.limit;
+    dirtyReason.value.limitChanged = limitChanged;
 
     // Check if the mode has changed
     const modeChanged = lastState.mode && lastState.mode !== activeMode.value;
+    dirtyReason.value.modeChanged = modeChanged;
 
     // If mode has changed, handle special cases
     if (modeChanged) {
       // If switching with empty queries, not dirty
       if ((!logchefQuery.value || logchefQuery.value.trim() === '') &&
           (!sqlQuery.value || sqlQuery.value.trim() === '')) {
+        dirtyReason.value.modeChanged = false;
         return false;
       }
 
@@ -112,6 +155,7 @@ export function useQuery() {
       if (lastState.mode === 'logchefql' &&
           activeMode.value === 'sql' &&
           (!lastState.logchefqlQuery || lastState.logchefqlQuery.trim() === '')) {
+        dirtyReason.value.modeChanged = false;
         return false;
       }
 
@@ -123,6 +167,7 @@ export function useQuery() {
           activeMode.value === 'sql' &&
           isFromUrl.value &&
           logchefQuery.value?.trim() === lastState.logchefqlQuery?.trim()) {
+        dirtyReason.value.modeChanged = false;
         return false;
       }
 
@@ -134,6 +179,7 @@ export function useQuery() {
           const result = translateLogchefQLToSQL(logchefQuery.value);
           if (result.success && sqlQuery.value?.trim() === result.sql.trim()) {
             // The SQL matches what would be auto-generated, so not dirty
+            dirtyReason.value.modeChanged = false;
             return false;
           }
         } catch (err) {
@@ -161,9 +207,11 @@ export function useQuery() {
       queryChanged = currentContent !== lastContent &&
                     (currentContent !== '' || lastContent !== '');
     }
+    
+    dirtyReason.value.queryChanged = queryChanged;
 
     // Consider dirty if any parameter changed
-    return timeRangeChanged || limitChanged || queryChanged;
+    return timeRangeChanged || limitChanged || queryChanged || dirtyReason.value.modeChanged;
   });
 
   // Helper for getting common query parameters
@@ -292,6 +340,12 @@ export function useQuery() {
     // In SQL mode, we might want to update the time range in the query
     // but this is now handled in LogExplorer.vue with more comprehensive patterns
     // This function now just acts as a notification handler for dirty state
+    
+    // Log for debugging
+    console.log("useQuery: handleTimeRangeUpdate called, current dirty state:", isDirty.value, 
+                "dirtyReason:", dirtyReason.value,
+                "timeRange comparison:", JSON.stringify(exploreStore.timeRange), 
+                "vs lastState:", exploreStore.lastExecutedState?.timeRange);
   };
 
   const handleLimitUpdate = () => {
@@ -421,6 +475,9 @@ export function useQuery() {
       }
 
       // Store current state before execution
+      console.log("useQuery: Setting lastExecutedState with timeRange:", 
+                  JSON.stringify(exploreStore.timeRange).substring(0, 50) + "...");
+                  
       exploreStore.setLastExecutedState({
         timeRange: JSON.stringify(exploreStore.timeRange),
         limit: exploreStore.limit,
@@ -487,6 +544,7 @@ export function useQuery() {
     sqlWarnings,
     hasRunQuery,
     isDirty,
+    dirtyReason,
     isExecutingQuery,
     canExecuteQuery,
 

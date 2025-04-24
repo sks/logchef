@@ -1,0 +1,156 @@
+<script setup lang="ts">
+import { ref, computed } from 'vue'
+import { CalendarIcon } from 'lucide-vue-next'
+import { Button } from '@/components/ui/button'
+import { DateTimePicker } from '@/components/date-time-picker'
+import { useTimeRange } from '@/composables/useTimeRange'
+import { useExploreStore } from '@/stores/explore'
+import { useQuery } from '@/composables/useQuery'
+import type { CalendarDateTime } from '@internationalized/date'
+import { relativeTimeToLabel } from '@/utils/time'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+
+const exploreStore = useExploreStore()
+const { timeRange, quickRangeLabelToRelativeTime, getHumanReadableTimeRange } = useTimeRange()
+const { isDirty, dirtyReason } = useQuery()
+
+// Reference to the DateTimePicker component
+const dateTimePickerRef = ref<InstanceType<typeof DateTimePicker> | null>(null)
+
+// Helper function to convert relative time format to DateTimePicker's quick range label format
+const quickRangeLabelFromRelativeTime = (relativeTime: string): string | null => {
+  // Map from relative time format to DateTimePicker quick range label
+  switch (relativeTime) {
+    case '5m': return 'Last 5m';
+    case '15m': return 'Last 15m';
+    case '30m': return 'Last 30m';
+    case '1h': return 'Last 1h';
+    case '3h': return 'Last 3h';
+    case '6h': return 'Last 6h';
+    case '12h': return 'Last 12h';
+    case '24h': return 'Last 24h';
+    case '2d': return 'Last 2d';
+    case '7d': return 'Last 7d';
+    case '30d': return 'Last 30d';
+    case '90d': return 'Last 90d';
+    default: return null;
+  }
+}
+
+// Handle date range selection
+const handleDateRangeChange = (value: {start: CalendarDateTime, end: CalendarDateTime}) => {
+  console.log("TimeRangeSelector: Time range changed");
+  
+  // Check if this update came from a quick range selection in DateTimePicker
+  if (dateTimePickerRef.value?.selectedQuickRange) {
+    // Convert quick range label to relative time format
+    const relativeTime = quickRangeLabelToRelativeTime(dateTimePickerRef.value.selectedQuickRange)
+    if (relativeTime) {
+      console.log("TimeRangeSelector: Setting relative time range:", relativeTime);
+      // Set the relative time in the store (which also sets the absolute time range)
+      exploreStore.setRelativeTimeRange(relativeTime)
+      
+      // Debug dirty state and force UI update
+      setTimeout(() => {
+        const dirtyState = isDirty.value;
+        console.log("TimeRangeSelector: After relative time change - isDirty:", dirtyState, 
+                   "dirtyReason:", JSON.stringify(dirtyReason.value),
+                   "lastExecutedState:", exploreStore.lastExecutedState ? "exists" : "null");
+                   
+        // Force the dirty state to be recalculated (optional, probably not needed)
+      }, 100);
+      
+      return
+    }
+  }
+
+  // If no relative time was found, update as absolute time range
+  // This also clears the selectedRelativeTime in the store
+  console.log("TimeRangeSelector: Setting absolute time range");
+  timeRange.value = value
+  
+  // Debug dirty state and force UI update
+  setTimeout(() => {
+    const dirtyState = isDirty.value;
+    console.log("TimeRangeSelector: After absolute time change - isDirty:", dirtyState, 
+               "dirtyReason:", JSON.stringify(dirtyReason.value),
+               "lastExecutedState:", exploreStore.lastExecutedState ? "exists" : "null");
+  }, 100);
+}
+
+// Function to set limit
+const handleLimitChange = (limit: number) => {
+  console.log("TimeRangeSelector: Setting new limit:", limit);
+  exploreStore.setLimit(limit)
+}
+
+// Function to open date picker programmatically
+const openDatePicker = () => {
+  if (dateTimePickerRef.value) {
+    dateTimePickerRef.value.openDatePicker()
+  }
+}
+
+// Current limit for display
+const currentLimit = computed(() => exploreStore.limit)
+
+// Computed for display text that prioritizes relative time format
+const displayTimeRange = computed(() => {
+  // If we have a human-readable relative time, use it
+  if (getHumanReadableTimeRange.value) {
+    return getHumanReadableTimeRange.value;
+  }
+  
+  // If DateTimePicker has a selected range text, use that
+  if (dateTimePickerRef.value?.selectedRangeText) {
+    return dateTimePickerRef.value.selectedRangeText;
+  }
+  
+  return 'Select time range';
+})
+
+// Expose method to parent components
+defineExpose({
+  openDatePicker
+})
+</script>
+
+<template>
+  <div class="flex items-center space-x-2 flex-grow">
+    <!-- Date/Time Picker -->
+    <DateTimePicker 
+      ref="dateTimePickerRef" 
+      :model-value="timeRange"
+      :selectedQuickRange="exploreStore.selectedRelativeTime ? quickRangeLabelFromRelativeTime(exploreStore.selectedRelativeTime) : null"
+      @update:model-value="handleDateRangeChange" 
+      class="h-8" 
+    />
+
+    <!-- Limit Dropdown -->
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="sm" class="h-8 text-sm justify-between px-2 min-w-[90px]">
+          <span>Limit:</span> {{ currentLimit.toLocaleString() }}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuLabel>Results Limit</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem 
+          v-for="limit in [100, 500, 1000, 2000, 5000, 10000]" 
+          :key="limit"
+          @click="handleLimitChange(limit)" 
+          :disabled="currentLimit === limit">
+          {{ limit.toLocaleString() }} rows
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  </div>
+</template>
