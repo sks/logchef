@@ -1,6 +1,6 @@
 services:
   logchef:
-    image: mr-karan/logchef:latest-amd64
+    image: mr-karan/logchef:latest
     container_name: logchef
     restart: on-failure
     # Port 8125 is only needed internally by Caddy

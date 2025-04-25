@@ -34,6 +34,22 @@ const groupByField = computed({
     exploreStore.setGroupByField(value);
   }
 });
+
+// Computed property for sort keys to show (filtered to remove timestamp and severity fields)
+const sortKeysToShow = computed(() => {
+  if (!sourcesStore.currentSourceDetails?.sort_keys) return [];
+  
+  return sourcesStore.currentSourceDetails.sort_keys.filter(
+    key => key !== sourcesStore.currentSourceDetails?._meta_severity_field && 
+           key !== sourcesStore.currentSourceDetails?._meta_ts_field
+  );
+});
+
+// Computed property to check if we have any recommended fields
+const hasRecommendedFields = computed(() => {
+  return !!sourcesStore.currentSourceDetails?._meta_severity_field || 
+         sortKeysToShow.value.length > 0;
+});
 </script>
 
 <template>
@@ -54,12 +70,24 @@ const groupByField = computed({
         <SelectGroup>
           <SelectLabel class="text-xs">Time Series Grouping</SelectLabel>
           <SelectItem value="__none__">No Grouping</SelectItem>
+        </SelectGroup>
+        
+        <!-- Combined recommended fields group -->
+        <SelectGroup v-if="hasRecommendedFields">
+          <SelectLabel class="text-xs">Recommended Fields</SelectLabel>
           
-          <!-- Show recommended fields first -->
+          <!-- Severity field if available -->
           <SelectItem v-if="sourcesStore.currentSourceDetails?._meta_severity_field" 
-                      :value="sourcesStore.currentSourceDetails._meta_severity_field" 
-                      class="border-l-2 border-primary/30 pl-2">
-            {{ sourcesStore.currentSourceDetails._meta_severity_field }} (Recommended)
+                      :value="sourcesStore.currentSourceDetails._meta_severity_field">
+            {{ sourcesStore.currentSourceDetails._meta_severity_field }}
+          </SelectItem>
+          
+          <!-- Sort keys (except timestamp and severity fields) -->
+          <SelectItem 
+            v-for="sortKey in sortKeysToShow"
+            :key="sortKey"
+            :value="sortKey">
+            {{ sortKey }}
           </SelectItem>
         </SelectGroup>
         
@@ -67,7 +95,8 @@ const groupByField = computed({
           <SelectLabel class="text-xs">Available Fields</SelectLabel>
           <SelectItem v-for="field in availableFields.filter(f => 
             f.name !== sourcesStore.currentSourceDetails?._meta_severity_field && 
-            f.name !== sourcesStore.currentSourceDetails?._meta_ts_field)"
+            f.name !== sourcesStore.currentSourceDetails?._meta_ts_field &&
+            !sourcesStore.currentSourceDetails?.sort_keys?.includes(f.name))"
             :key="field.name" 
             :value="field.name">
             {{ field.name }}

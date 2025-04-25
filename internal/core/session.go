@@ -76,8 +76,7 @@ func CreateSession(ctx context.Context, db *sqlite.DB, log *slog.Logger, userID 
 		if err := RevokeUserSessions(ctx, db, log, userID); err != nil {
 			// Don't necessarily fail the login, but log the error
 			log.Error("failed to delete existing user sessions while enforcing limit", "error", err, "user_id", userID)
-			// Decide if this should be a fatal error for session creation
-			// return nil, fmt.Errorf("failed to delete existing user sessions: %w", err)
+			return nil, fmt.Errorf("failed to delete existing user sessions: %w", err)
 		}
 	}
 
@@ -87,7 +86,6 @@ func CreateSession(ctx context.Context, db *sqlite.DB, log *slog.Logger, userID 
 		ID:        models.SessionID(sessionID),
 		UserID:    userID,
 		ExpiresAt: time.Now().Add(duration),
-		// CreatedAt is set by the DB layer
 	}
 
 	// Save session to database
@@ -97,8 +95,6 @@ func CreateSession(ctx context.Context, db *sqlite.DB, log *slog.Logger, userID 
 	}
 
 	log.Info("new session created successfully", "session_id", session.ID, "user_id", userID)
-	// The session object passed to db.CreateSession should ideally be updated with CreatedAt by the db layer
-	// If not, we might need to fetch it again, but for now assume it's okay.
 	return session, nil
 }
 

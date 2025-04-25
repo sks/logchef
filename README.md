@@ -8,11 +8,10 @@ Logchef combines the power of Clickhouse for high-speed log storage with an intu
 
 ## Features
 
-- **Universal Clickhouse UI**: Connect to any Clickhouse table, schema-agnostic
+- **Schema-Agnostic Log Viewer**: Connect to and view logs from any Clickhouse table, regardless of schema.
 - **Dual Query Modes**: Use simple search syntax or full Clickhouse SQL power
-- **High Performance**: Leverage Clickhouse for fast queries on large datasets
-- **Team-Centric**: Multi-tenant with user roles, teams, and source access control
-- **Low Resource Usage**: Minimal footprint on top of Clickhouse
+- **High Performance & Low Footprint**: Acts as an efficient view layer on top of Clickhouse, enabling fast queries on large datasets with minimal resource usage.
+- **Robust RBAC**: Implement fine-grained access control. Assign users to teams and connect data sources to teams, ensuring secure multi-tenant log access.
 - **Single Binary Deployment**: Easy installation and management
 
 ## Installation
@@ -28,11 +27,6 @@ docker compose up -d
 ```
 
 Visit `http://localhost:8125`
-
-### Binary
-
-- Download the [latest release](https://github.com/mr-karan/logchef/releases) and extract the binary
-- Run `./logchef` and visit `http://localhost:8125`
 
 ## Screenshots
 
