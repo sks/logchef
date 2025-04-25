@@ -20,7 +20,7 @@ auth.password=""
 type = "clickhouse"
 inputs = ["remap_http"]
 endpoint = "http://localhost:8123"
-database = "logs"
+database = "default"
 table = "http_logs"
 skip_unknown_fields = true
 

@@ -1,4 +1,4 @@
-CREATE TABLE logs.http_logs
+CREATE TABLE default.http_logs
 (
     `timestamp` DateTime64(3) CODEC(DoubleDelta, LZ4),
     `host` LowCardinality(String) CODEC(ZSTD(1)),
