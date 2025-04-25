@@ -1,58 +1,47 @@
-# Logchef
+<p align="center">
+  <h1 align="center">🔍 Logchef</h1>
+  <p align="center">A modern, high-performance log analytics platform</p>
+</p>
 
-A modern, high-performance log analytics platform that runs as a single binary.
+<p align="center">
+  <a href="https://demo.logchef.app"><strong>Try Demo</strong></a> · 
+  <a href="https://logchef.app"><strong>Read Docs</strong></a>
+</p>
 
-Logchef combines the power of Clickhouse for high-speed log storage with an intuitive frontend, offering powerful querying capabilities and visualization tools for development teams of all sizes.
+---
 
-## Key Features
+Logchef is a lightweight, powerful log analytics platform that runs as a single binary. It leverages Clickhouse for blazing-fast log storage and provides an intuitive interface for querying and visualizing logs, making it perfect for development teams of all sizes.
 
-- **Universal Clickhouse UI**: Connect to any Clickhouse table, schema-agnostic.
-- **Dual Query Modes**: Use simple search syntax or full Clickhouse SQL power.
-- **High Performance**: Leverage Clickhouse for fast queries on large datasets.
-- **Team-Centric**: Multi-tenant with user roles, teams, and source access control.
-- **Low Resource Usage**: Minimal footprint on top of Clickhouse.
-- **Single Binary Deployment**: Easy installation and management.
+## ✨ Features
 
-## Demo
+- **Schema-Agnostic Log Exploration**: Query any Clickhouse table regardless of schema
+- **Flexible Query Options**: Simple search syntax or full Clickhouse SQL
+- **High Performance**: Fast queries on large datasets with minimal resource usage
+- **Team-Based Access Control**: Secure multi-tenant log access with fine-grained permissions
+- **Single Binary Deployment**: Easy installation and management
 
-Visit [demo.logchef.com](https://demo.logchef.com) to see Logchef in action.
-
-## Documentation
-
-Comprehensive documentation is available at [logchef.app](https://logchef.app).
-
-## Screenshots
-
-## Installation
+## 🚀 Quick Start
 
 ### Docker
 
 ```shell
 # Download the compose file
-curl -LO https://github.com/mr-karan/logchef/raw/master/docker-compose.yml
+curl -LO https://github.com/mr-karan/logchef/raw/master/deployment/docker/docker-compose.yml
 
 # Run the services
 docker compose up -d
 ```
 
-Visit `http://localhost:8125`
+Visit `http://localhost:8125` to start exploring your logs.
 
-### Binary
+## 📚 Documentation
 
-- Download the [latest release](https://github.com/mr-karan/logchef/releases) and extract the binary
-- Run `./logchef` and visit `http://localhost:8125`
+For comprehensive documentation, visit [logchef.app](https://logchef.app).
 
-## Developers
+## 📊 Screenshots
 
-Logchef is open source software. If you're interested in contributing:
+<!-- Screenshots to be added -->
 
-1. Clone the repository.
-2. Set up your development environment with Go and Node.js.
-3. Run necessary development infrastructure (like Clickhouse) using `just dev-docker`.
-4. Build the project using `just build`.
-5. Run the backend server in one terminal: `just run-backend`.
-6. Run the frontend development server in another terminal: `just run-frontend`.
-
-## License
+## 📜 License
 
 Logchef is licensed under the AGPLv3 License.

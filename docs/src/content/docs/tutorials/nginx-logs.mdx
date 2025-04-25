@@ -1,0 +1,261 @@
+---
+title: Shipping NGINX Logs to ClickHouse
+description: How to collect, parse, and store NGINX logs in ClickHouse for analysis with Logchef
+---
+
+This tutorial demonstrates how to set up a custom schema in ClickHouse for NGINX access logs and configure Vector to collect, parse, and ship these logs. Unlike the OpenTelemetry example, this tutorial shows how to work with your own custom schema designed specifically for NGINX logs.
+
+## Overview
+
+Logchef works with any ClickHouse table structure, not just standardized schemas. This flexibility allows you to create purpose-built schemas for specific log types like NGINX access logs.
+
+In this tutorial, we'll:
+
+1. Create a custom ClickHouse table designed for NGINX logs
+2. Configure Vector to parse and ship NGINX logs
+3. Configure Logchef to query these logs
+
+## Step 1: Create a ClickHouse Table for NGINX Logs
+
+First, let's create a table with a structure specifically designed for NGINX access logs:
+
+```sql
+CREATE DATABASE IF NOT EXISTS nginxdb;
+
+CREATE TABLE IF NOT EXISTS nginxdb.access_logs (
+    timestamp DateTime,
+    remote_addr String,
+    request_method String,
+    request_uri String,
+    status Int32,
+    bytes_sent Int64,
+    http_referer String,
+    http_user_agent String,
+    request_time Float64,
+    
+    INDEX idx_timestamp timestamp TYPE minmax GRANULARITY 3,
+    INDEX idx_status status TYPE set(100) GRANULARITY 4,
+    INDEX idx_request_uri request_uri TYPE tokenbf_v1(32768, 3, 0) GRANULARITY 1,
+    INDEX idx_user_agent http_user_agent TYPE bloom_filter(0.01) GRANULARITY 1
+)
+ENGINE = MergeTree()
+PARTITION BY toYYYYMM(timestamp)
+ORDER BY (timestamp, status)
+TTL timestamp + INTERVAL 90 DAY
+SETTINGS index_granularity = 8192;
+```
+
+This table includes:
+- Common NGINX log fields with appropriate data types
+- Useful indexes for faster queries
+- Time-based partitioning for efficient data management
+- A 90-day TTL for automatic data cleanup
+
+## Step 2: Configure NGINX Logging
+
+Ensure your NGINX is configured to log in the combined format. In your `nginx.conf` file within the `http` section:
+
+```nginx
+http {
+    # Other settings...
+    
+    log_format combined_timing '$remote_addr - $remote_user [$time_local] '
+                               '"$request" $status $body_bytes_sent '
+                               '"$http_referer" "$http_user_agent" '
+                               '$request_time';
+    
+    access_log /var/log/nginx/access.log combined_timing;
+    
+    # More settings...
+}
+```
+
+This format includes the standard combined log format plus the request processing time.
+
+## Step 3: Configure Vector to Collect and Parse NGINX Logs
+
+Create a Vector configuration file (`vector.toml`):
+
+```toml
+# Source: Tail the NGINX access log file
+[sources.nginx_access]
+type = "file"
+include = ["/var/log/nginx/access.log"]
+read_from = "beginning"
+
+# Parse the NGINX logs
+[transforms.parse_nginx]
+type = "remap"
+inputs = ["nginx_access"]
+source = '''
+  # Use Vector's built-in NGINX parser
+  structured = parse_nginx_log!(.message)
+  
+  # Map fields to our schema
+  .timestamp = to_timestamp!(structured.timestamp)
+  .remote_addr = structured.remote_addr
+  .request_method = structured.method 
+  .request_uri = structured.path
+  .status = to_int!(structured.status)
+  .bytes_sent = to_int!(structured.size)
+  .http_referer = structured.referer
+  .http_user_agent = structured.agent
+  
+  # Extract request_time if present
+  .request_time = to_float!(structured.request_time) ?? 0.0
+  
+  # Drop the original message field
+  del(.message)
+'''
+
+# Send parsed logs to ClickHouse
+[sinks.clickhouse_nginx]
+type = "clickhouse"
+inputs = ["parse_nginx"]
+endpoint = "http://clickhouse:8123"
+database = "nginxdb"
+table = "access_logs"
+compression = "gzip"
+skip_unknown_fields = true
+```
+
+This configuration:
+1. Collects logs from the NGINX access log file
+2. Uses Vector's built-in NGINX log parser
+3. Maps the fields to match our ClickHouse table schema
+4. Sends the parsed logs to ClickHouse
+
+## Step 4: Enrich Your Logs (Optional)
+
+You can enhance your logs with additional context:
+
+```toml
+# Add enrichment after parsing
+[transforms.enrich_nginx]
+type = "remap"
+inputs = ["parse_nginx"]
+source = '''
+  # Add environment and server info
+  .environment = get_env_var("ENVIRONMENT", "production")
+  .server_name = get_env_var("SERVER_NAME", "unknown")
+  
+  # Extract API version from the URI
+  api_version = parse_regex(.request_uri, r"/api/v(?P<version>\\d+)/")
+  .api_version = if exists(api_version.version) { api_version.version } else { "none" }
+  
+  # Categorize status codes
+  .status_category = if .status >= 500 {
+      "error"
+  } else if .status >= 400 {
+      "client_error"
+  } else if .status >= 300 {
+      "redirect"
+  } else if .status >= 200 {
+      "success"
+  } else {
+      "other"
+  }
+'''
+
+# Update the sink to use the enriched transform
+[sinks.clickhouse_nginx]
+inputs = ["enrich_nginx"]
+# ...rest of the sink config stays the same
+```
+
+If you add these enrichment fields, remember to update your ClickHouse table to include them:
+
+```sql
+ALTER TABLE nginxdb.access_logs ADD COLUMN environment String;
+ALTER TABLE nginxdb.access_logs ADD COLUMN server_name String;
+ALTER TABLE nginxdb.access_logs ADD COLUMN api_version String;
+ALTER TABLE nginxdb.access_logs ADD COLUMN status_category String;
+```
+
+## Step 5: Deploy and Run
+
+Deploy your Vector configuration and start collecting logs:
+
+```bash
+# Start Vector with your configuration
+vector --config /path/to/vector.toml
+```
+
+## Step 6: Configure Logchef to Query Your Logs
+
+Once your logs are flowing into ClickHouse, configure Logchef to access them:
+
+1. Log in to Logchef
+2. Go to Sources > Add Source
+3. Enter the connection details:
+   - Host: Your ClickHouse host 
+   - Port: 9000
+   - Database: nginxdb
+   - Table: access_logs
+4. Create a team and assign this source to the team
+
+## Example Queries in Logchef
+
+With your custom NGINX log schema, you can run queries like:
+
+```
+# Find all server errors
+status >= 500
+
+# Find slow requests (taking more than 1 second)
+request_time > 1.0
+
+# Find large responses
+bytes_sent > 1000000
+
+# Find specific API endpoints
+request_uri:"/api/users"
+
+# Combine multiple conditions
+status=404 AND remote_addr="192.168.0.1"
+
+# Time-based queries
+timestamp > '2025-04-20 00:00:00' AND timestamp < '2025-04-25 23:59:59'
+```
+
+If you added the enrichment fields:
+
+```
+# Find all errors in production
+environment="production" AND status_category="error"
+
+# Find v2 API calls
+api_version="2"
+```
+
+## Monitoring Your Pipeline
+
+To ensure your log pipeline is working correctly:
+
+1. Check Vector is running:
+   ```bash
+   ps aux | grep vector
+   ```
+
+2. Check logs are flowing to ClickHouse:
+   ```sql
+   SELECT count() FROM nginxdb.access_logs;
+   ```
+
+3. Check the most recent logs:
+   ```sql
+   SELECT * FROM nginxdb.access_logs ORDER BY timestamp DESC LIMIT 10;
+   ```
+
+## Conclusion
+
+This tutorial has shown how to:
+
+1. Create a custom schema in ClickHouse specific for NGINX logs
+2. Configure Vector to collect, parse, and ship these logs
+3. Add optional enrichment for better analysis
+4. Set up Logchef to query these logs
+
+This approach focuses on a schema tailored specifically for NGINX logs rather than a generic schema like OpenTelemetry. This design can be more efficient for NGINX-specific analysis but may be less flexible if you later need to analyze logs from multiple sources together.
+
+Remember that Logchef functions as a query interface for your logs in ClickHouse - it doesn't handle log collection. This separation of concerns allows you to use specialized tools like Vector for collection and parsing while using Logchef's intuitive interface for exploration and analysis.

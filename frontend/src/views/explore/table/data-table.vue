@@ -143,19 +143,21 @@ function initializeState(columns: ColumnDef<Record<string, any>>[]) {
     // Try to load from storage
     const savedState = loadStateFromStorage();
 
-    if (savedState) {
-        // Process column order
-        const savedOrder = savedState.columnOrder || [];
+    if (savedState && savedState.columnOrder && savedState.columnOrder.length > 0) {
+        // --- Use Saved State ---
+        console.log("Loading table state from localStorage for key:", storageKey.value);
+        // Validate saved order against current columns
+        const savedOrder = savedState.columnOrder;
         const filteredSavedOrder = savedOrder.filter(id => currentColumnIds.includes(id));
         const newColumnIds = currentColumnIds.filter(id => !filteredSavedOrder.includes(id));
         initialOrder = [...filteredSavedOrder, ...newColumnIds];
 
-        // Process column sizing and visibility
+        // Process column sizing and visibility from saved state
         const savedSizing = savedState.columnSizing || {};
         const savedVisibility = savedState.columnVisibility || {};
 
         currentColumnIds.forEach(id => {
-            // Handle sizing
+            // Handle sizing (prioritize saved state)
             if (savedSizing[id] !== undefined) {
                 initialSizing[id] = savedSizing[id];
             } else {
@@ -163,12 +165,23 @@ function initializeState(columns: ColumnDef<Record<string, any>>[]) {
                 initialSizing[id] = columnDef?.size ?? defaultColumn.size;
             }
 
-            // Handle visibility
+            // Handle visibility (prioritize saved state)
             initialVisibility[id] = savedVisibility[id] !== undefined ? savedVisibility[id] : true;
         });
     } else {
-        initialOrder = currentColumnIds;
+        // --- Generate Default State ---
+        console.log("No saved state found or no column order, generating default table state for key:", storageKey.value);
+        // Generate default order with timestamp first
+        const tsField = timestampFieldName.value; // Get the current timestamp field name
+        const otherColumns = currentColumnIds.filter(id => id !== tsField);
 
+        if (currentColumnIds.includes(tsField)) {
+            initialOrder = [tsField, ...otherColumns]; // Put timestamp first
+        } else {
+            initialOrder = currentColumnIds; // Timestamp column doesn't exist, use default order
+        }
+
+        // Set default sizing and visibility for all current columns
         currentColumnIds.forEach(id => {
             const columnDef = columns.find(c => c.id === id);
             initialSizing[id] = columnDef?.size ?? defaultColumn.size;
@@ -597,12 +610,15 @@ const handleDrillDown = (columnName: string, value: any, operator: string = '=')
                 <!-- Loading Spinner -->
                 <RefreshCw v-if="props.isLoading" class="h-4 w-4 text-primary animate-spin" />
                 <!-- Query Stats -->
-                <span v-if="!props.isLoading && stats && stats.execution_time_ms !== undefined" class="inline-flex items-center">
+                <span v-if="!props.isLoading && stats && stats.execution_time_ms !== undefined"
+                    class="inline-flex items-center">
                     <Timer class="h-3.5 w-3.5 mr-1.5 text-muted-foreground/80" />
                     Query time:
-                    <span class="ml-1 font-medium text-foreground/90">{{ formatExecutionTime(stats.execution_time_ms) }}</span>
+                    <span class="ml-1 font-medium text-foreground/90">{{ formatExecutionTime(stats.execution_time_ms)
+                        }}</span>
                 </span>
-                <span v-if="!props.isLoading && stats && stats.rows_read !== undefined" class="inline-flex items-center">
+                <span v-if="!props.isLoading && stats && stats.rows_read !== undefined"
+                    class="inline-flex items-center">
                     <Rows4 class="h-3.5 w-3.5 mr-1.5 text-muted-foreground/80" />
                     Rows:
                     <span class="ml-1 font-medium text-foreground/90">{{ stats.rows_read.toLocaleString() }}</span>
@@ -680,7 +696,7 @@ const handleDrillDown = (columnName: string, value: any, operator: string = '=')
 
         <!-- Table Section with full-height scrolling -->
         <div class="flex-1 relative overflow-hidden" ref="tableContainerRef"
-             :class="{ 'opacity-60 pointer-events-none': props.isLoading }"> <!-- Dim table during load -->
+            :class="{ 'opacity-60 pointer-events-none': props.isLoading }"> <!-- Dim table during load -->
             <!-- Add v-if="table" here -->
             <div v-if="table && table.getRowModel().rows?.length" class="absolute inset-0">
                 <div
@@ -772,17 +788,20 @@ const handleDrillDown = (columnName: string, value: any, operator: string = '=')
                                             <!-- Action buttons container -->
                                             <div class="flex items-center">
                                                 <!-- Drill-down buttons - only in logchefQL mode -->
-                                                <template v-if="props.activeMode === 'logchefql'">
+                                                <template
+                                                    v-if="props.activeMode === 'logchefql' && cell.column.id !== timestampFieldName">
                                                     <Button variant="ghost" size="icon"
                                                         class="h-5 w-5 flex-shrink-0 opacity-0 cell-action-button transition-opacity duration-150 focus:opacity-100 mr-0.5"
                                                         @click.stop="handleDrillDown(cell.column.id, cell.getValue(), '=')"
-                                                        title="Filter equals this value" aria-label="Filter equals this value">
+                                                        title="Filter equals this value"
+                                                        aria-label="Filter equals this value">
                                                         <Equal class="h-3 w-3" />
                                                     </Button>
                                                     <Button variant="ghost" size="icon"
                                                         class="h-5 w-5 flex-shrink-0 opacity-0 cell-action-button transition-opacity duration-150 focus:opacity-100 mr-1"
                                                         @click.stop="handleDrillDown(cell.column.id, cell.getValue(), '!=')"
-                                                        title="Filter not equals this value" aria-label="Filter not equals this value">
+                                                        title="Filter not equals this value"
+                                                        aria-label="Filter not equals this value">
                                                         <EqualNot class="h-3 w-3" />
                                                     </Button>
                                                 </template>

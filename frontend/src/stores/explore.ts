@@ -18,6 +18,7 @@ import { useSourcesStore } from "./sources";
 import { useTeamsStore } from "@/stores/teams";
 import { useBaseStore } from "./base";
 import { QueryService } from '@/services/QueryService'
+import { parseRelativeTimeString } from "@/utils/time";
 
 // Helper function to get formatted table name
 export function getFormattedTableName(source: any): string {
@@ -39,15 +40,15 @@ export function getFormattedTableName(source: any): string {
   return `${database}.${tableName}`; // Default fallback
 }
 
-// Helper to get the default time range (1 hour)
+// Helper to get the default time range (15 minutes)
 export function getDefaultTimeRange() {
   const now = new Date();
-  const oneHourAgo = new Date(now);
-  oneHourAgo.setHours(now.getHours() - 1); // One hour ago
+  const fifteenMinutesAgo = new Date(now);
+  fifteenMinutesAgo.setMinutes(now.getMinutes() - 15); // Fifteen minutes ago
 
   // Return timestamps in milliseconds
   return {
-    start: oneHourAgo.getTime(),
+    start: fifteenMinutesAgo.getTime(),
     end: now.getTime(),
   };
 }
@@ -63,6 +64,8 @@ export interface ExploreState {
     start: DateValue;
     end: DateValue;
   } | null;
+  // Selected relative time window (e.g., "15m", "1h", "7d", "today", etc.)
+  selectedRelativeTime: string | null;
   // UI state for filter builder
   filterConditions: FilterCondition[];
   // Raw SQL state
@@ -118,6 +121,7 @@ export const useExploreStore = defineStore("explore", () => {
     sourceId: 0,
     limit: 100,
     timeRange: null,
+    selectedRelativeTime: null, // Initialize the relative time selection to null
     filterConditions: [],
     rawSql: "",
     logchefqlCode: undefined,
@@ -138,8 +142,8 @@ export const useExploreStore = defineStore("explore", () => {
   function getTimestamps() {
     const { timeRange } = state.data.value;
     if (!timeRange) {
-      // If no time range is set, default to "now to 1 hour ago"
-      console.warn("No time range set, using default (now to 1 hour ago)");
+      // If no time range is set, default to "now to 15 minutes ago"
+      console.warn("No time range set, using default (now to 15 minutes ago)");
       return getDefaultTimeRange();
     }
 
@@ -188,7 +192,13 @@ export const useExploreStore = defineStore("explore", () => {
       newRange: JSON.stringify(range),
       lastExecutedRange: state.data.value.lastExecutedState?.timeRange
     });
+
+    // Update the time range
     state.data.value.timeRange = range;
+
+    // When setTimeRange is called directly, we are setting absolute times
+    // Clear the relative time selection to maintain consistency
+    state.data.value.selectedRelativeTime = null;
   }
 
   function setLimit(limit: number) {
@@ -240,12 +250,12 @@ export const useExploreStore = defineStore("explore", () => {
   function resetQueryStateToDefault() {
     console.log("Explore store: Resetting query state to default");
 
-    // Create a default time range (last hour)
+    // Create a default time range (last 15 minutes)
     const nowDt = now(getLocalTimeZone());
     const timeRange = {
       start: new CalendarDateTime(
         nowDt.year, nowDt.month, nowDt.day, nowDt.hour, nowDt.minute, nowDt.second
-      ).subtract({ hours: 1 }),
+      ).subtract({ minutes: 15 }),
       end: new CalendarDateTime(
         nowDt.year, nowDt.month, nowDt.day, nowDt.hour, nowDt.minute, nowDt.second
       )
@@ -253,6 +263,9 @@ export const useExploreStore = defineStore("explore", () => {
 
     // Set time range
     state.data.value.timeRange = timeRange;
+
+    // Set the relative time to "15m" since we're using a 15-minute window
+    state.data.value.selectedRelativeTime = "15m";
 
     // Reset limit to default
     state.data.value.limit = 100;
@@ -318,6 +331,7 @@ export const useExploreStore = defineStore("explore", () => {
       sourceId: state.data.value.sourceId, // Preserve source
       limit: state.data.value.limit, // Preserve limit
       timeRange: state.data.value.timeRange, // Preserve time range
+      selectedRelativeTime: state.data.value.selectedRelativeTime, // Preserve relative time selection
       filterConditions: [],
       rawSql: "",
       logchefqlCode: state.data.value.logchefqlCode,
@@ -331,6 +345,9 @@ export const useExploreStore = defineStore("explore", () => {
 
   // Main query execution
   async function executeQuery(finalSql?: string) {
+    // Store the relative time so we can restore it after execution
+    const relativeTime = state.data.value.selectedRelativeTime;
+
     // Reset timestamp at the start of execution attempt
     state.data.value.lastExecutionTimestamp = null;
     const operationKey = 'executeQuery'; // Define operation key for errors
@@ -421,12 +438,6 @@ export const useExploreStore = defineStore("explore", () => {
       console.log('Explore store: Setting last executed state:', executionState);
       state.data.value.lastExecutedState = executionState;
 
-      // DO NOT reset previous results here. Keep old data until new data arrives.
-      // state.data.value.logs = [];
-      // state.data.value.queryStats = DEFAULT_QUERY_STATS;
-      // state.data.value.columns = [];
-      // state.data.value.queryId = null;
-
       // Prepare parameters for the correct API call (getLogs)
       const timestamps = getTimestamps();
       const params: QueryParams = {
@@ -438,7 +449,6 @@ export const useExploreStore = defineStore("explore", () => {
       };
 
       // Use the centralized API calling mechanism from base store
-      // This structure assumes callApi returns the API response directly or throws/handles errors
       const response = await state.callApi({
         apiCall: async () => exploreApi.getLogs(state.data.value.sourceId, params, currentTeamId),
         // Update results ONLY on successful API call with data
@@ -449,13 +459,18 @@ export const useExploreStore = defineStore("explore", () => {
               state.data.value.columns = data.columns || [];
               state.data.value.queryStats = data.stats || DEFAULT_QUERY_STATS;
               // Check if query_id exists in params before accessing it
-              // Ensure data.params is an object before checking for query_id
               if (data.params && typeof data.params === 'object' && "query_id" in data.params) {
                   state.data.value.queryId = data.params.query_id as string;
               } else {
                   state.data.value.queryId = null; // Reset if not present
               }
               state.data.value.lastExecutionTimestamp = Date.now(); // Set timestamp on success
+
+              // Restore the relative time if it was set before execution
+              if (relativeTime) {
+                // Use setRelativeTimeRange to ensure both relative string and absolute range are updated
+                setRelativeTimeRange(relativeTime);
+              }
           } else {
               // Query was successful but returned no logs or null data
               console.warn("Query successful but received no logs or null data.");
@@ -465,6 +480,11 @@ export const useExploreStore = defineStore("explore", () => {
               state.data.value.queryStats = DEFAULT_QUERY_STATS;
               state.data.value.queryId = null;
               state.data.value.lastExecutionTimestamp = Date.now(); // Also set timestamp here
+
+              // Restore the relative time if it was set before
+              if (relativeTime) {
+                state.data.value.selectedRelativeTime = relativeTime;
+              }
           }
         },
         operationKey: operationKey,
@@ -474,6 +494,12 @@ export const useExploreStore = defineStore("explore", () => {
       // This helps the histogram know when to refresh
       if (!response.success && state.data.value.lastExecutionTimestamp === null) {
           state.data.value.lastExecutionTimestamp = Date.now();
+
+          // Restore the relative time if it was set before execution, even on error
+          if (relativeTime) {
+            // Use setRelativeTimeRange to ensure both relative string and absolute range are updated
+            setRelativeTimeRange(relativeTime);
+          }
       }
 
       // IMPORTANT: Return structure expected by useQueryExecution
@@ -538,6 +564,43 @@ export const useExploreStore = defineStore("explore", () => {
     state.data.value.groupByField = field;
   }
 
+  // Add function to set relative time range
+  function setRelativeTimeRange(relativeTimeString: string | null) {
+    if (!relativeTimeString) {
+      state.data.value.selectedRelativeTime = null;
+      return;
+    }
+
+    try {
+      // Parse the relative time string into absolute start/end times
+      const { start, end } = parseRelativeTimeString(relativeTimeString);
+
+      // Store the relative time string for URL sharing FIRST
+      state.data.value.selectedRelativeTime = relativeTimeString;
+
+      // Then set the absolute time range WITHOUT clearing the selectedRelativeTime
+      // We need to update the internal timeRange property directly to avoid
+      // the automatic clearing of selectedRelativeTime that happens in setTimeRange
+      state.data.value.timeRange = { start, end };
+
+      console.log('Explore store: Set relative time range:', {
+        relativeTime: relativeTimeString,
+        absoluteRange: {
+          start: start.toString(),
+          end: end.toString()
+        }
+      });
+    } catch (error) {
+      console.error('Failed to parse relative time string:', error);
+      // Don't update the state if parsing fails
+    }
+  }
+
+  // Function to get the currently selected relative time
+  function getSelectedRelativeTime() {
+    return state.data.value.selectedRelativeTime;
+  }
+
   // Return the store
   return {
     // State
@@ -547,6 +610,7 @@ export const useExploreStore = defineStore("explore", () => {
     sourceId: computed(() => state.data.value.sourceId),
     limit: computed(() => state.data.value.limit),
     timeRange: computed(() => state.data.value.timeRange),
+    selectedRelativeTime: computed(() => state.data.value.selectedRelativeTime),
     filterConditions: computed(() => state.data.value.filterConditions),
     rawSql: computed(() => state.data.value.rawSql),
     pendingRawSql: computed({
@@ -573,6 +637,8 @@ export const useExploreStore = defineStore("explore", () => {
     // Actions
     setSource,
     setTimeRange,
+    setRelativeTimeRange,
+    getSelectedRelativeTime,
     setLimit,
     setFilterConditions,
     setRawSql,

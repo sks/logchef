@@ -753,15 +753,60 @@ func isKeyword(s string) bool {
 
 // Ping checks the connectivity to the ClickHouse server.
 // It sends a PING request and waits for a PONG response.
+// If no context is provided or has no deadline, a default short timeout is applied.
 func (c *Client) Ping(ctx context.Context) error {
 	if c.conn == nil {
 		return fmt.Errorf("clickhouse client connection is nil")
 	}
+	
+	// Apply a default 1-second timeout if context doesn't have a deadline
+	var cancel context.CancelFunc
+	_, hasDeadline := ctx.Deadline()
+	if !hasDeadline {
+		ctx, cancel = context.WithTimeout(ctx, 1*time.Second)
+		defer cancel()
+	}
+	
 	// Use the underlying driver connection's Ping method
 	if err := c.conn.Ping(ctx); err != nil {
+		// Check if it's a context timeout or cancellation
+		if ctx.Err() != nil {
+			c.logger.Debug("clickhouse ping timeout/cancelled", "context_error", ctx.Err())
+			return fmt.Errorf("clickhouse ping failed due to context: %w", ctx.Err())
+		}
 		// Log the specific ping error for debugging
 		c.logger.Debug("clickhouse ping failed", "error", err)
 		return fmt.Errorf("clickhouse ping failed: %w", err)
 	}
 	return nil
+}
+
+// QuickHealthCheck performs a very fast health check with a strict 1-second timeout.
+// This method is specifically designed for source listing operations where we don't want
+// to block the UI for long periods.
+func (c *Client) QuickHealthCheck(ctx context.Context) bool {
+	if c.conn == nil {
+		return false
+	}
+	
+	// Always use a strict 1-second timeout regardless of parent context
+	checkCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
+	defer cancel()
+	
+	// Create a channel to get the ping result
+	done := make(chan error, 1)
+	
+	// Run ping in a separate goroutine to ensure timeout is respected
+	go func() {
+		done <- c.conn.Ping(checkCtx)
+	}()
+	
+	// Wait for ping to complete or timeout
+	select {
+	case err := <-done:
+		return err == nil
+	case <-checkCtx.Done():
+		c.logger.Debug("quick health check timed out after 1 second")
+		return false
+	}
 }

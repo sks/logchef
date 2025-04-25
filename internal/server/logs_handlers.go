@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -63,7 +64,8 @@ func (s *Server) handleQueryLogs(c *fiber.Ctx) error {
 		// Handle invalid query syntax errors specifically if core.QueryLogs returns them.
 		// if errors.Is(err, core.ErrInvalidQuery) ...
 		s.log.Error("failed to query logs via core function", slog.Any("error", err), "source_id", sourceID)
-		return SendErrorWithType(c, fiber.StatusInternalServerError, "Failed to query logs", models.GeneralErrorType)
+		// Pass the actual error message to the client for better debugging
+		return SendErrorWithType(c, fiber.StatusInternalServerError, fmt.Sprintf("Failed to query logs: %v", err), models.DatabaseErrorType)
 	}
 
 	return SendSuccess(c, fiber.StatusOK, result)
@@ -85,7 +87,7 @@ func (s *Server) handleGetSourceSchema(c *fiber.Ctx) error {
 			return SendErrorWithType(c, fiber.StatusNotFound, "Source not found", models.NotFoundErrorType)
 		}
 		s.log.Error("failed to get source schema via core function", slog.Any("error", err), "source_id", sourceID)
-		return SendErrorWithType(c, fiber.StatusInternalServerError, "Failed to retrieve source schema", models.GeneralErrorType)
+		return SendErrorWithType(c, fiber.StatusInternalServerError, fmt.Sprintf("Failed to retrieve source schema: %v", err), models.DatabaseErrorType)
 	}
 
 	return SendSuccess(c, fiber.StatusOK, schema)
@@ -140,7 +142,8 @@ func (s *Server) handleGetHistogram(c *fiber.Ctx) error {
 
 		// Handle other errors
 		s.log.Error("failed to get histogram data via core function", slog.Any("error", err), "source_id", sourceID)
-		return SendErrorWithType(c, fiber.StatusInternalServerError, "Failed to generate histogram data", models.GeneralErrorType)
+		// Pass the actual error message to the client for better debugging
+		return SendErrorWithType(c, fiber.StatusInternalServerError, fmt.Sprintf("Failed to generate histogram data: %v", err), models.DatabaseErrorType)
 	}
 
 	return SendSuccess(c, fiber.StatusOK, result)

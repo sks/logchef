@@ -16,6 +16,7 @@ const ERROR_TITLES: Record<string, string> = {
   AuthorizationError: "Authorization Error",
   NotFoundError: "Not Found",
   RateLimitError: "Rate Limit Exceeded",
+  DemoModeError: "Demo Mode Restriction",
   GeneralError: "Error",
   GeneralException: "System Error",
 };

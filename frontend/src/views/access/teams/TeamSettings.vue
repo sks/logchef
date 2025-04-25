@@ -52,22 +52,27 @@ const sourcesStore = useSourcesStore()
 const teamsStore = useTeamsStore()
 const authStore = useAuthStore()
 
+// Get the teamId from route params
+const teamId = computed(() => Number(route.params.id))
+
+// Single loading state for better UX
+const isLoading = ref(true)
+
 // Get reactive state from the stores
-const { isLoading, error: teamError } = storeToRefs(teamsStore)
+const { error: teamError } = storeToRefs(teamsStore)
 
 // Computed properties for cleaner store access
-const team = computed(() => teamsStore.getTeamById(Number(route.params.id)))
-const members = computed(() => teamsStore.getTeamMembersByTeamId(Number(route.params.id)) || [])
-const teamSources = computed(() => teamsStore.getTeamSourcesByTeamId(Number(route.params.id)) || [])
+const team = computed(() => teamsStore.getTeamById(teamId.value))
+const members = computed(() => teamsStore.getTeamMembersByTeamId(teamId.value) || [])
+const teamSources = computed(() => teamsStore.getTeamSourcesByTeamId(teamId.value) || [])
 
-// Combined loading state
+// Combined saving state - more specific than overall loading
 const isSaving = computed(() => {
-    const teamId = Number(route.params.id)
-    return teamsStore.isLoadingOperation('updateTeam-' + teamId) ||
-        teamsStore.isLoadingOperation('addTeamMember-' + teamId) ||
-        teamsStore.isLoadingOperation('removeTeamMember-' + teamId) ||
-        teamsStore.isLoadingOperation('addTeamSource-' + teamId) ||
-        teamsStore.isLoadingOperation('removeTeamSource-' + teamId);
+    return teamsStore.isLoadingOperation('updateTeam-' + teamId.value) ||
+        teamsStore.isLoadingOperation('addTeamMember-' + teamId.value) ||
+        teamsStore.isLoadingOperation('removeTeamMember-' + teamId.value) ||
+        teamsStore.isLoadingOperation('addTeamSource-' + teamId.value) ||
+        teamsStore.isLoadingOperation('removeTeamSource-' + teamId.value);
 })
 
 // Form state - use team data when available
@@ -102,66 +107,46 @@ const availableSources = computed(() => {
     return sourcesStore.getSourcesNotInTeam(teamSourceIds)
 })
 
-// Load users when dialog opens
+// Load users when dialog opens to prevent unnecessary API calls
 watch(showAddMemberDialog, async (isOpen) => {
     if (isOpen && !usersStore.users.length) {
         await usersStore.loadUsers()
     }
 })
 
-// Load sources when dialog opens
+// Load sources when dialog opens to prevent unnecessary API calls
 watch(showAddSourceDialog, async (isOpen) => {
     if (isOpen && !sourcesStore.sources.length) {
         await sourcesStore.loadSources()
     }
 })
 
-// Simplified loading functions that rely on the store
-const loadTeam = async () => {
-    const teamId = Number(route.params.id)
+// Simplified submit function
+const handleSubmit = async () => {
+    if (!team.value) return
 
-    if (isNaN(teamId) || teamId <= 0) {
+    // Basic validation
+    if (!name.value) {
         toast({
             title: 'Error',
-            description: 'Invalid team ID',
+            description: 'Team name is required',
             variant: 'destructive',
         })
         return
     }
 
-    await teamsStore.getTeam(teamId)
-    // Store automatically handles errors and success
-}
-
-const loadTeamMembers = async () => {
-    const teamId = Number(route.params.id)
-
-    if (isNaN(teamId) || teamId <= 0) return
-
-    await teamsStore.listTeamMembers(teamId)
-    // Store automatically handles errors and success
-}
-
-const loadTeamSources = async () => {
-    const teamId = Number(route.params.id)
-
-    if (isNaN(teamId) || teamId <= 0) return
-
-    await teamsStore.listTeamSources(teamId)
-    // Store automatically handles errors and success
-}
-
-const handleSubmit = async () => {
-    if (!team.value) return
-
-    // Basic validation
-    if (!name.value) return
-
-    await teamsStore.updateTeam(team.value.id, {
+    const result = await teamsStore.updateTeam(team.value.id, {
         name: name.value,
         description: description.value || '',
     })
-    // Store handles success/error states
+
+    if (result.success) {
+        toast({
+            title: 'Success',
+            description: 'Team settings updated successfully',
+            variant: 'default',
+        })
+    }
 }
 
 const handleAddMember = async () => {
@@ -177,8 +162,6 @@ const handleAddMember = async () => {
         selectedUserId.value = ''
         newMemberRole.value = 'member'
         showAddMemberDialog.value = false
-        // Explicitly refresh the list
-        await teamsStore.listTeamMembers(team.value.id);
     }
 }
 
@@ -196,10 +179,10 @@ const handleRemoveMember = async (userId: string | number) => {
     }
 
     try {
-        await teamsStore.removeTeamMember(team.value.id, Number(userId));
+        const result = await teamsStore.removeTeamMember(team.value.id, Number(userId));
 
-        if (isSelf) {
-            // Redirect to teams list or first available team if removing self
+        if (result.success && isSelf) {
+            // Redirect to teams list if removing self
             toast({
                 title: 'Left Team',
                 description: `You have removed yourself from team ${team.value.name}`,
@@ -209,7 +192,6 @@ const handleRemoveMember = async (userId: string | number) => {
             // Navigate away from this page since user no longer has access
             router.push({ name: 'Home' });
         }
-        // Store automatically updates the members list
     } catch (error) {
         console.error('Error removing team member:', error);
         toast({
@@ -232,8 +214,6 @@ const handleAddSource = async () => {
         // Reset form
         selectedSourceId.value = ''
         showAddSourceDialog.value = false
-        // Explicitly refresh the list
-        await teamsStore.listTeamSources(team.value.id);
     }
 }
 
@@ -244,52 +224,73 @@ const handleRemoveSource = async (sourceId: string | number) => {
     activeTab.value = 'sources'
 
     await teamsStore.removeTeamSource(team.value.id, Number(sourceId))
-    // Store automatically updates the sources list
 }
 
+// Optimized initialization to load everything in parallel
 onMounted(async () => {
-    const teamId = Number(route.params.id)
+    const id = teamId.value
 
-    if (isNaN(teamId) || teamId <= 0) {
+    if (isNaN(id) || id <= 0) {
         toast({
             title: 'Error',
             description: `Invalid team ID: ${route.params.id}`,
             variant: 'destructive',
         })
+        isLoading.value = false
         return
     }
 
-    // No need to clear state here, just load the necessary data
-
     try {
-        // Load all data in parallel for performance
+        isLoading.value = true
+
+        // Load basic data in parallel for better performance
         await Promise.all([
-            usersStore.loadUsers(), // Load all users for the add member dialog
-            sourcesStore.loadSources(), // Load all sources for the add source dialog
-            teamsStore.loadAdminTeams(), // <-- ADD THIS: Ensure the full list of admin-accessible teams is loaded
-            teamsStore.getTeam(teamId), // Load details for the specific team being viewed
-            teamsStore.listTeamMembers(teamId), // Load members for this specific team
-            teamsStore.listTeamSources(teamId) // Load sources for this specific team
+            // Load admin teams first to ensure we have the team in the store
+            teamsStore.loadAdminTeams(),
+
+            // Load these in parallel for efficiency
+            usersStore.loadUsers(),
+            sourcesStore.loadSources()
         ])
+
+        // Get detailed team info after confirming admin teams are loaded
+        await teamsStore.getTeam(id)
+
+        // Load team-specific data in parallel
+        await Promise.all([
+            teamsStore.listTeamMembers(id),
+            teamsStore.listTeamSources(id)
+        ])
+
     } catch (error) {
-        // Store handles individual API errors automatically, but catch potential Promise.all rejection
-        console.error("Error loading team settings data:", error); // Log the specific error
+        console.error("Error loading team settings:", error)
         toast({
             title: 'Error',
-            description: 'An error occurred while loading team data. Some information might be missing.',
+            description: 'An error occurred while loading team data. Please try again.',
             variant: 'destructive',
         })
+    } finally {
+        isLoading.value = false
     }
 })
 </script>
 
 <template>
     <div class="space-y-6">
-        <div v-if="isLoading" class="text-center py-4">
-            Loading team...
+        <div v-if="isLoading" class="flex items-center justify-center py-10">
+            <div class="flex flex-col items-center">
+                <div class="animate-spin w-10 h-10 rounded-full border-4 border-primary border-t-transparent mb-4">
+                </div>
+                <p class="text-muted-foreground">Loading team settings...</p>
+            </div>
         </div>
-        <div v-else-if="!team" class="text-center py-4">
-            Team not found
+        <div v-else-if="!team" class="text-center py-12">
+            <h3 class="text-lg font-medium mb-2">Team not found</h3>
+            <p class="text-muted-foreground mb-4">The team you're looking for doesn't exist or you don't have access.
+            </p>
+            <Button variant="outline" @click="router.push('/access/teams')">
+                Back to Teams
+            </Button>
         </div>
         <template v-else>
             <!-- Header -->
@@ -376,7 +377,11 @@ onMounted(async () => {
                             </div>
                         </CardHeader>
                         <CardContent>
-                            <Table>
+                            <div v-if="teamsStore.isLoadingTeamMembers(teamId)" class="text-center py-4">
+                                <Loader2 class="h-6 w-6 animate-spin mx-auto mb-2" />
+                                <p class="text-sm text-muted-foreground">Loading members...</p>
+                            </div>
+                            <Table v-else>
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>Email</TableHead>
@@ -386,6 +391,11 @@ onMounted(async () => {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
+                                    <TableRow v-if="members.length === 0">
+                                        <TableCell colspan="4" class="text-center py-4 text-muted-foreground">
+                                            No members found
+                                        </TableCell>
+                                    </TableRow>
                                     <TableRow v-for="member in members" :key="member.user_id">
                                         <TableCell>
                                             <div class="flex flex-col">
@@ -466,7 +476,11 @@ onMounted(async () => {
                             </div>
                         </CardHeader>
                         <CardContent>
-                            <Table>
+                            <div v-if="teamsStore.isLoadingTeamSources(teamId)" class="text-center py-4">
+                                <Loader2 class="h-6 w-6 animate-spin mx-auto mb-2" />
+                                <p class="text-sm text-muted-foreground">Loading sources...</p>
+                            </div>
+                            <Table v-else>
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>Source</TableHead>
@@ -476,6 +490,11 @@ onMounted(async () => {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
+                                    <TableRow v-if="teamSources.length === 0">
+                                        <TableCell colspan="4" class="text-center py-4 text-muted-foreground">
+                                            No sources found
+                                        </TableCell>
+                                    </TableRow>
                                     <TableRow v-for="source in teamSources" :key="source.id">
                                         <TableCell>{{ formatSourceName(source) }}</TableCell>
                                         <TableCell>{{ source.description }}</TableCell>

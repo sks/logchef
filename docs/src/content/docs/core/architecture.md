@@ -3,7 +3,15 @@ title: Architecture
 description: Comprehensive overview of LogChef's architecture, components, and data flow
 ---
 
-LogChef is a modern log analytics platform built with performance, scalability, and usability in mind. It consists of several key components working together to provide a seamless log exploration experience.
+## Architectural Overview
+
+LogChef is architected as a specialized query and visualization layer on top of ClickHouse. Its design emphasizes a clear separation of concerns:
+
+- **Query Engine**: Core focus on transforming user queries into optimized ClickHouse SQL
+- **No Ingestion Pipeline**: The architecture intentionally excludes log collection, focusing exclusively on the query interface
+- **ClickHouse Integration**: Deep integration with ClickHouse's query capabilities while maintaining schema flexibility
+
+This architectural approach allows LogChef to leverage the existing ecosystem of log collection tools while providing a specialized interface for exploring logs once they're in ClickHouse.
 
 ## System Overview
 
@@ -16,7 +24,6 @@ LogChef is a modern log analytics platform built with performance, scalability, 
 - **Go**: LogChef's core backend is written in Go, providing high performance, concurrency, and efficient resource utilization
 - **SQLite**: Lightweight database used for metadata storage of users, teams, sources, and saved queries
 - **ClickHouse**: High-performance columnar database optimized for analytical queries on log data
-- **Vector**: Log ingestion and transformation pipeline
 
 #### Frontend
 
@@ -29,6 +36,7 @@ LogChef is a modern log analytics platform built with performance, scalability, 
 
 - Converts simple search syntax to optimized ClickHouse SQL
 - Manages query execution across multiple sources
+- Supports both simple search syntax and raw SQL for complex queries
 
 ### 2. Authentication Service
 
@@ -41,6 +49,18 @@ LogChef is a modern log analytics platform built with performance, scalability, 
 - Manages connections to remote ClickHouse instances
 - Handles source registration and validation
 - Provides connection pooling mechanisms
+
+## Data Flow
+
+1. **Log Ingestion** (external to LogChef):
+   - Various collectors (Vector, Filebeat, etc.) send logs to ClickHouse
+   - Each collector handles its own schema mapping and transformations
+
+2. **Log Querying** (LogChef's domain):
+   - Users construct queries via the UI (simple syntax or SQL)
+   - LogChef translates simple syntax to optimized ClickHouse SQL
+   - Queries are executed against the appropriate ClickHouse source(s)
+   - Results are processed, formatted, and displayed in the UI
 
 ## Data Storage
 
@@ -58,7 +78,6 @@ SQLite manages all system configuration and relationships:
 LogChef connects to multiple remote ClickHouse databases as sources:
 
 - **Schema Flexibility**: Sources can:
-
   - Use the default OTEL schema as-is
   - Customize the built-in OpenTelemetry (OTEL) schema
   - Use custom schemas
@@ -66,6 +85,12 @@ LogChef connects to multiple remote ClickHouse databases as sources:
 - **Requirements**: Only a `timestamp` field (DateTime/DateTime64) is mandatory
 
 - **Schema Agnostic**: Beyond `timestamp`, any column structure is supported
+
+## Deployment Considerations
+
+- **Single Binary**: LogChef runs as a lightweight single binary with minimal resource requirements
+- **Stateless Operation**: Core application is stateless for horizontal scaling (only SQLite metadata is persistent)
+- **Proxying**: Can be deployed behind reverse proxies like Nginx or Caddy
 
 This architecture ensures:
 

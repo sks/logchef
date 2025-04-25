@@ -104,6 +104,18 @@ export class HistogramService {
     error?: { message: string; details?: string };
   }> {
     try {
+      console.log("HistogramService: Starting fetchHistogramData with params:", {
+        sourceId: params.sourceId,
+        teamId: params.teamId,
+        timeRange: {
+          start: params.timeRange.start,
+          end: params.timeRange.end
+        },
+        queryType: params.queryType,
+        groupBy: params.groupBy,
+        queryLength: params.query?.length || 0
+      });
+
       // Auto-calculate granularity if not explicitly provided
       const granularity = params.granularity ||
         this.calculateOptimalGranularity(params.timeRange.start, params.timeRange.end);
@@ -125,6 +137,14 @@ export class HistogramService {
         queryParams.group_by = params.groupBy;
       }
 
+      console.log("HistogramService: Calling API with params:", {
+        sourceId: params.sourceId,
+        timestamps: [queryParams.start_timestamp, queryParams.end_timestamp],
+        queryType: queryParams.query_type,
+        window: queryParams.window,
+        groupBy: queryParams.group_by
+      });
+
       // Call the API with all parameters in the body
       const response = await exploreApi.getHistogramData(
         params.sourceId,
@@ -132,7 +152,11 @@ export class HistogramService {
         params.teamId
       );
 
+      console.log("HistogramService: API response received",
+                 isErrorResponse(response) ? "Error" : "Success");
+
       if (isErrorResponse(response)) {
+        console.error("HistogramService: Error response", response);
         return {
           success: false,
           error: {
@@ -141,6 +165,9 @@ export class HistogramService {
           }
         };
       }
+
+      console.log("HistogramService: Success response with data points:",
+                 response.data?.data?.length || 0);
 
       return {
         success: true,

@@ -9,17 +9,20 @@ import { CalendarIcon, Clock } from 'lucide-vue-next'
 import type { DateRange } from 'radix-vue'
 import { getLocalTimeZone, now, ZonedDateTime, toZoned, CalendarDateTime, type DateValue, parseDateTime } from '@internationalized/date'
 import { cn } from '@/lib/utils'
+import { relativeTimeToLabel } from '@/utils/time'
 
 interface Props {
     modelValue?: DateRange | null
     class?: string
     disabled?: boolean
+    selectedQuickRange?: string | null
 }
 
 const props = withDefaults(defineProps<Props>(), {
     modelValue: null,
     class: '',
-    disabled: false
+    disabled: false,
+    selectedQuickRange: null
 })
 
 const emit = defineEmits<{
@@ -35,12 +38,12 @@ const errorMessage = ref('')
 // Date state
 const currentTime = now(getLocalTimeZone())
 const dateRange = ref<{ start: DateValue; end: DateValue }>({
-    start: currentTime.subtract({ hours: 1 }),
+    start: currentTime.subtract({ minutes: 15 }),
     end: currentTime
 })
 
-// Get the currently selected range text
-const selectedQuickRange = ref<string | null>(null)
+// Get the currently selected range text (now synced with props)
+const selectedQuickRange = ref<string | null>(props.selectedQuickRange || null)
 
 // Computed DateRange for v-model binding
 const calendarDateRange = computed({
@@ -79,6 +82,14 @@ if (!props.modelValue?.start || !props.modelValue?.end) {
     emit('update:modelValue', calendarDateRange.value)
 }
 
+// Watch for changes in props.selectedQuickRange
+watch(() => props.selectedQuickRange, (newValue) => {
+    if (newValue !== selectedQuickRange.value) {
+        console.log('DateTimePicker: Updating selectedQuickRange from props:', newValue);
+        selectedQuickRange.value = newValue;
+    }
+}, { immediate: true });
+
 // Sync internal state with external value
 watch(() => props.modelValue, (newValue) => {
     if (newValue?.start && newValue?.end) {
@@ -101,10 +112,10 @@ watch(() => props.modelValue, (newValue) => {
                 time: formatTime(end)
             }
         }
-
-        // Update selected quick range to null when time range is updated externally
-        // This ensures the display shows the actual time range rather than a quick range label
-        selectedQuickRange.value = null;
+        
+        // We don't automatically reset the selectedQuickRange anymore
+        // This allows us to maintain the relative time display when using quick ranges
+        // selectedQuickRange.value will be updated by parent components through normal binding
     }
 }, { immediate: true, deep: true })
 
@@ -274,7 +285,15 @@ function emitUpdate() {
 
 const selectedRangeText = computed(() => {
     if (!dateRange.value?.start || !dateRange.value?.end) return 'Select time range'
-    if (selectedQuickRange.value) return selectedQuickRange.value
+    
+    // Use the quick range in human-readable format if available
+    if (selectedQuickRange.value) {
+        // Use the relativeTimeToLabel function from utils/time to convert
+        // Example: "Last 15m" to "Last 15 minutes"
+        return relativeTimeToLabel(selectedQuickRange.value)
+    }
+    
+    // Otherwise use the absolute time format
     return formatDisplayText()
 })
 
@@ -300,7 +319,9 @@ function openDatePicker() {
 
 // Expose methods to parent component
 defineExpose({
-    openDatePicker
+    openDatePicker,
+    selectedQuickRange,
+    selectedRangeText
 })
 </script>
 
@@ -309,8 +330,7 @@ defineExpose({
         <Popover v-model:open="showDatePicker">
             <PopoverTrigger as-child>
                 <Button variant="outline" :class="[
-                    'min-w-[200px] max-w-[420px]',
-                    selectedQuickRange ? 'w-[200px]' : 'w-auto',
+                    'min-w-[260px] max-w-[420px] truncate',
                     props.disabled ? 'opacity-50 cursor-not-allowed' : ''
                 ]" :disabled="props.disabled">
                     <div class="flex items-center">
@@ -383,11 +403,6 @@ defineExpose({
                                 </div>
                             </div>
                         </div>
-                    </div>
-
-                    <!-- Duration -->
-                    <div class="text-sm text-muted-foreground">
-                        {{ durationText }}
                     </div>
 
                     <!-- Error message -->

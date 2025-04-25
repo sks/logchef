@@ -7,10 +7,19 @@ import { getErrorMessage } from '@/api/types';
 import type { TimeRange, QueryResult } from '@/types/query';
 import { validateLogchefQLWithDetails } from '@/utils/logchefql/api';
 import { validateSQLWithDetails } from '@/utils/clickhouse-sql';
+import { createTimeRangeCondition } from '@/utils/time-utils';
 import { useExploreUrlSync } from './useExploreUrlSync';
 
 // Define the valid editor modes
 type EditorMode = 'logchefql' | 'sql';
+
+// Add an interface for tracking why a query is dirty
+interface DirtyStateReason {
+  timeRangeChanged: boolean;
+  limitChanged: boolean;
+  queryChanged: boolean;
+  modeChanged: boolean;
+}
 
 /**
  * Comprehensive query management composable
@@ -28,6 +37,13 @@ export function useQuery() {
   const sqlWarnings = ref<string[]>([]);
   const hasRunQuery = ref(false);
   const isFromUrl = ref(true); // Track if current content came from URL
+  const initialQueryExecution = ref(true); // Flag to track initial execution from URL
+  const dirtyReason = ref<DirtyStateReason>({
+    timeRangeChanged: false,
+    limitChanged: false,
+    queryChanged: false,
+    modeChanged: false
+  });
 
   // Computed query content
   const logchefQuery = computed({
@@ -75,29 +91,64 @@ export function useQuery() {
 
   // Check if query state is dirty (needs execution)
   const isDirty = computed(() => {
+    // Reset the dirty reasons
+    dirtyReason.value = {
+      timeRangeChanged: false,
+      limitChanged: false,
+      queryChanged: false,
+      modeChanged: false
+    };
+
+    // If we're still in the initial query execution phase and the content came from URL,
+    // it shouldn't be marked as dirty
+    if (initialQueryExecution.value && isFromUrl.value) {
+      return false;
+    }
+
     const lastState = exploreStore.lastExecutedState;
     if (!lastState) {
       // If no previous state, only consider dirty if there's actually query content
       // AND it was not loaded from URL
-      return ((logchefQuery.value && logchefQuery.value.trim() !== '') ||
+      const hasQuery = ((logchefQuery.value && logchefQuery.value.trim() !== '') ||
              (sqlQuery.value && sqlQuery.value.trim() !== '')) &&
              !isFromUrl.value;
+              
+      if (hasQuery) {
+        dirtyReason.value.queryChanged = true;
+      }
+      
+      return hasQuery;
     }
 
     // Determine if time range changed
-    const timeRangeChanged = JSON.stringify(exploreStore.timeRange) !== lastState.timeRange;
+    // Force trim any long strings for more reliable comparison
+    const currentTimeRangeJSON = JSON.stringify(exploreStore.timeRange);
+    const lastTimeRangeJSON = lastState.timeRange;
+    
+    const timeRangeChanged = currentTimeRangeJSON !== lastTimeRangeJSON;
+    dirtyReason.value.timeRangeChanged = timeRangeChanged;
+    
+    // Debug timeRange comparison
+    console.log("useQuery: isDirty calculation - timeRange comparison:",
+               "current:", currentTimeRangeJSON.substring(0, 50) + "...",
+               "lastState:", lastTimeRangeJSON.substring(0, 50) + "...",
+               "areEqual:", currentTimeRangeJSON === lastTimeRangeJSON,
+               "Definitely dirty?", timeRangeChanged);
 
     // Determine if limit changed
     const limitChanged = exploreStore.limit !== lastState.limit;
+    dirtyReason.value.limitChanged = limitChanged;
 
     // Check if the mode has changed
     const modeChanged = lastState.mode && lastState.mode !== activeMode.value;
+    dirtyReason.value.modeChanged = modeChanged;
 
     // If mode has changed, handle special cases
     if (modeChanged) {
       // If switching with empty queries, not dirty
       if ((!logchefQuery.value || logchefQuery.value.trim() === '') &&
           (!sqlQuery.value || sqlQuery.value.trim() === '')) {
+        dirtyReason.value.modeChanged = false;
         return false;
       }
 
@@ -105,7 +156,37 @@ export function useQuery() {
       if (lastState.mode === 'logchefql' &&
           activeMode.value === 'sql' &&
           (!lastState.logchefqlQuery || lastState.logchefqlQuery.trim() === '')) {
+        dirtyReason.value.modeChanged = false;
         return false;
+      }
+
+      // Special case: when switching from LogChefQL to SQL with auto-translation
+      // If we're in SQL mode with content marked as from URL (not manually edited),
+      // and we have valid LogChefQL content that matches the last execution state,
+      // then this is just an auto-translation and should not be considered dirty
+      if (lastState.mode === 'logchefql' &&
+          activeMode.value === 'sql' &&
+          isFromUrl.value &&
+          logchefQuery.value?.trim() === lastState.logchefqlQuery?.trim()) {
+        dirtyReason.value.modeChanged = false;
+        return false;
+      }
+
+      // Additional special case: URL-loaded LogChefQL to auto-translated SQL
+      // If we're in SQL mode with LogChefQL content, check if the SQL matches what would be generated
+      if (activeMode.value === 'sql' && logchefQuery.value?.trim()) {
+        try {
+          // Generate SQL from the current LogChefQL query
+          const result = translateLogchefQLToSQL(logchefQuery.value);
+          if (result.success && sqlQuery.value?.trim() === result.sql.trim()) {
+            // The SQL matches what would be auto-generated, so not dirty
+            dirtyReason.value.modeChanged = false;
+            return false;
+          }
+        } catch (err) {
+          console.error("Error checking SQL translation:", err);
+          // On error, fall back to standard checks
+        }
       }
     }
 
@@ -127,9 +208,11 @@ export function useQuery() {
       queryChanged = currentContent !== lastContent &&
                     (currentContent !== '' || lastContent !== '');
     }
+    
+    dirtyReason.value.queryChanged = queryChanged;
 
     // Consider dirty if any parameter changed
-    return timeRangeChanged || limitChanged || queryChanged;
+    return timeRangeChanged || limitChanged || queryChanged || dirtyReason.value.modeChanged;
   });
 
   // Helper for getting common query parameters
@@ -207,7 +290,8 @@ export function useQuery() {
         if (result.success) {
           // Always set SQL when logchefQL exists and translation succeeds
           sqlQuery.value = result.sql;
-          // Only mark as user-generated content if not just a mode switch
+          // Keep isFromUrl true when it's just a mode switch to prevent marking as dirty
+          // This is the key fix - we don't want auto-translated content to be considered dirty
           if (!isModeSwitchOnly) {
             isFromUrl.value = false;
           }
@@ -254,9 +338,61 @@ export function useQuery() {
 
   // Handle time/limit changes
   const handleTimeRangeUpdate = () => {
-    // In SQL mode, we might want to update the time range in the query
-    // but this is now handled in LogExplorer.vue with more comprehensive patterns
-    // This function now just acts as a notification handler for dirty state
+    // Only update SQL query if in SQL mode
+    if (activeMode.value === 'sql') {
+      const currentSql = sqlQuery.value?.trim() || '';
+      if (!currentSql) return;
+      
+      try {
+        // Get current source details
+        const tableName = sourcesStore.getCurrentSourceTableName;
+        const tsField = sourcesStore.currentSourceDetails?._meta_ts_field || 'timestamp';
+        
+        // Check if the SQL query contains toDateTime function calls
+        if (currentSql.includes('toDateTime(')) {
+          // Instead of generating an entirely new query, we'll selectively update
+          // the time range portion while preserving the rest of the query
+          
+          // Extract the WHERE clause and analyze it
+          const whereClauseMatch = /WHERE\s+(.*?)(?:\s+ORDER\s+BY|\s+GROUP\s+BY|\s+LIMIT|\s*$)/is.exec(currentSql);
+          if (whereClauseMatch) {
+            const whereClause = whereClauseMatch[1];
+            
+            // Look for time range condition with toDateTime
+            const timeConditionRegex = new RegExp(`\`?${tsField}\`?\\s+BETWEEN\\s+toDateTime\\([^)]+\\)\\s+AND\\s+toDateTime\\([^)]+\\)`, 'i');
+            const timeConditionMatch = timeConditionRegex.exec(whereClause);
+            
+            if (timeConditionMatch) {
+              // Generate the new time condition
+              const newTimeCondition = createTimeRangeCondition(tsField, exploreStore.timeRange as TimeRange, true);
+              
+              // Replace the old time condition with the new one in the full SQL
+              const updatedSql = currentSql.replace(timeConditionMatch[0], newTimeCondition);
+              
+              if (updatedSql !== currentSql) {
+                sqlQuery.value = updatedSql;
+                exploreStore.setRawSql(updatedSql);
+                console.log("useQuery: Updated time range in SQL query while preserving other conditions");
+              }
+            } else {
+              console.log("useQuery: Couldn't find time range condition pattern to update");
+            }
+          } else {
+            console.log("useQuery: Couldn't find WHERE clause to update time range");
+          }
+        } else {
+          console.log("useQuery: SQL query doesn't contain toDateTime calls, skipping time update");
+        }
+      } catch (error) {
+        console.error("useQuery: Error updating time range in SQL:", error);
+      }
+    }
+    
+    // Log for debugging
+    console.log("useQuery: handleTimeRangeUpdate called, current dirty state:", isDirty.value, 
+                "dirtyReason:", dirtyReason.value,
+                "timeRange comparison:", JSON.stringify(exploreStore.timeRange), 
+                "vs lastState:", exploreStore.lastExecutedState?.timeRange);
   };
 
   const handleLimitUpdate = () => {
@@ -303,14 +439,18 @@ export function useQuery() {
   // Prepare the query for execution
   const prepareQueryForExecution = (): QueryResult => {
     try {
+      console.log("useQuery: Starting prepareQueryForExecution");
       const params = getCommonQueryParams();
       const mode = activeMode.value;
       const query = mode === 'logchefql' ? logchefQuery.value : sqlQuery.value;
+
+      console.log("useQuery: Preparing query - mode:", mode, "query:", query ? (query.length > 50 ? query.substring(0, 50) + '...' : query) : '(empty)');
 
       // Validate LogchefQL query before execution
       if (mode === 'logchefql' && query.trim()) {
         const validation = validateLogchefQLWithDetails(query);
         if (!validation.valid) {
+          console.log("useQuery: LogchefQL validation failed:", validation.error);
           queryError.value = validation.error || 'Invalid LogchefQL syntax';
           return {
             success: false,
@@ -323,6 +463,7 @@ export function useQuery() {
       else if (mode === 'sql' && query.trim()) {
         const validation = validateSQLWithDetails(query);
         if (!validation.valid) {
+          console.log("useQuery: SQL validation failed:", validation.error);
           queryError.value = validation.error || 'Invalid SQL syntax';
           return {
             success: false,
@@ -335,11 +476,16 @@ export function useQuery() {
       // Translate the mode to what QueryService expects
       const queryServiceMode = mode === 'logchefql' ? 'logchefql' : 'clickhouse-sql';
 
+      console.log("useQuery: Calling QueryService.prepareQueryForExecution");
       const result = QueryService.prepareQueryForExecution({
         mode: queryServiceMode,
         query,
         ...params
       });
+
+      console.log("useQuery: Query preparation result:", result.success ? "success" : "failed",
+                  result.error ? `Error: ${result.error}` : '',
+                  result.warnings?.length ? `Warnings: ${result.warnings.length}` : '');
 
       // Track warnings and errors
       sqlWarnings.value = result.warnings || [];
@@ -348,6 +494,7 @@ export function useQuery() {
       return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error("useQuery: Exception in prepareQueryForExecution:", errorMessage);
       queryError.value = errorMessage;
       return {
         success: false,
@@ -375,6 +522,9 @@ export function useQuery() {
       }
 
       // Store current state before execution
+      console.log("useQuery: Setting lastExecutedState with timeRange:", 
+                  JSON.stringify(exploreStore.timeRange).substring(0, 50) + "...");
+                  
       exploreStore.setLastExecutedState({
         timeRange: JSON.stringify(exploreStore.timeRange),
         limit: exploreStore.limit,
@@ -384,8 +534,10 @@ export function useQuery() {
         sqlQuery: sqlQuery.value
       });
 
-      // After execution, content is no longer considered from URL
-      isFromUrl.value = false;
+      // Only reset isFromUrl if this is not the initial query execution from URL
+      if (!initialQueryExecution.value) {
+        isFromUrl.value = false;
+      }
 
       // Execute the query via store
       const execResult = await exploreStore.executeQuery(result.sql);
@@ -402,8 +554,9 @@ export function useQuery() {
         // pushQueryHistoryEntry();
       }
 
-      // Mark that we've run a query
+      // Mark that we've run a query and no longer in initial execution
       hasRunQuery.value = true;
+      initialQueryExecution.value = false;
 
       return {
         success: execResult.success,
@@ -438,6 +591,7 @@ export function useQuery() {
     sqlWarnings,
     hasRunQuery,
     isDirty,
+    dirtyReason,
     isExecutingQuery,
     canExecuteQuery,
 

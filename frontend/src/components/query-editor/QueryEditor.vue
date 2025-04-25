@@ -63,6 +63,22 @@
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
+        
+        <!-- SQL Toggle Button - Only show when in SQL mode -->
+        <TooltipProvider v-if="props.activeMode === 'clickhouse-sql'">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="outline" size="sm" class="h-7 gap-1" @click="toggleSqlEditorVisibility">
+                <EyeOff v-if="isEditorVisible" class="h-3.5 w-3.5" />
+                <Eye v-else class="h-3.5 w-3.5" />
+                <span class="text-xs">{{ isEditorVisible ? 'Hide' : 'Show' }} SQL</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              <p>{{ isEditorVisible ? 'Hide' : 'Show' }} SQL query editor</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
 
         <!-- Saved Queries Dropdown -->
         <SavedQueriesDropdown :selected-source-id="props.sourceId" :selected-team-id="props.teamId"
@@ -99,9 +115,6 @@
                 <div><code class="bg-muted px-1 rounded">GROUP BY user ORDER BY count() DESC</code></div>
                 <div class="pt-1"><em>Time range & limit applied if not specified. Use standard ClickHouse SQL.</em>
                 </div>
-                <div class="pt-1 text-xs text-amber-500/80"><em>Note: Custom/complex SQL queries won't auto-update with
-                    time
-                    range changes.</em></div>
               </div>
             </div>
           </HoverCardContent>
@@ -110,7 +123,7 @@
     </div>
 
     <!-- Monaco Editor Container -->
-    <div class="editor-wrapper" :class="{ 'is-focused': editorFocused }">
+    <div class="editor-wrapper" :class="{ 'is-focused': editorFocused }" v-show="isEditorVisible || props.activeMode === 'logchefql'">
       <div class="editor-container" :class="{
         'is-empty': isEditorEmpty
       }" :style="{ height: `${editorHeight}px` }" :data-placeholder="currentPlaceholder" :data-mode="props.activeMode">
@@ -119,6 +132,20 @@
           :language="props.activeMode" :options="monacoOptions" @mount="handleMount" @update:value="handleEditorChange"
           class="h-full w-full" />
       </div>
+    </div>
+    
+    <!-- SQL Preview when editor is hidden -->
+    <div v-if="!isEditorVisible && props.activeMode === 'clickhouse-sql' && !isEditorEmpty" 
+         class="sql-preview p-3 border border-border rounded-md bg-muted/30 text-sm font-mono overflow-hidden cursor-pointer"
+         @click="isEditorVisible = true">
+      <div class="flex items-center justify-between">
+        <div class="text-muted-foreground text-xs font-medium mb-1">SQL Query (collapsed)</div>
+        <Button variant="ghost" size="sm" class="h-6 px-2" @click.stop="isEditorVisible = true">
+          <Eye class="h-3.5 w-3.5 mr-1" />
+          <span class="text-xs">Show</span>
+        </Button>
+      </div>
+      <div class="truncate text-xs text-muted-foreground">{{ editorContent }}</div>
     </div>
 
     <!-- Error Message Display -->
@@ -139,11 +166,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, shallowRef, watch, onMounted, onBeforeUnmount, nextTick, reactive, watchEffect } from "vue";
+import { ref, computed, shallowRef, watch, onMounted, onBeforeUnmount, onActivated, onDeactivated, nextTick, reactive, watchEffect } from "vue";
 import * as monaco from "monaco-editor";
 import { useDark } from "@vueuse/core";
 import { VueMonacoEditor } from "@guolao/vue-monaco-editor";
-import { HelpCircle, PanelRightOpen, PanelRightClose, AlertCircle, XCircle, FileEdit, FilePlus2, Search, Code2 } from "lucide-vue-next";
+import { HelpCircle, PanelRightOpen, PanelRightClose, AlertCircle, XCircle, FileEdit, FilePlus2, Search, Code2, Eye, EyeOff } from "lucide-vue-next";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import SavedQueriesDropdown from '@/components/collections/SavedQueriesDropdown.vue';
@@ -152,7 +179,11 @@ import { useRoute, useRouter } from 'vue-router';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
-import { initMonacoSetup, getDefaultMonacoOptions, getSingleLineModeOptions } from "@/utils/monaco";
+import {
+  initMonacoSetup, getDefaultMonacoOptions, getSingleLineModeOptions,
+  getOrCreateModel, registerEditorInstance, unregisterEditorInstance,
+  lightweightEditorDisposal, reactivateEditor
+} from "@/utils/monaco";
 import { Parser as LogchefQLParser, State as LogchefQLState, Operator as LogchefQLOperator, VALID_KEY_VALUE_OPERATORS as LogchefQLValidOperators, isNumeric } from "@/utils/logchefql";
 import { validateLogchefQLWithDetails } from "@/utils/logchefql/api"; // Import detailed validation
 import { validateSQLWithDetails, SQL_KEYWORDS, CLICKHOUSE_FUNCTIONS, SQL_TYPES } from "@/utils/clickhouse-sql";
@@ -206,6 +237,7 @@ const validationError = ref<string | null>(null);
 const isProgrammaticChange = ref(false); // Flag to prevent update loops
 const isDisposing = ref(false); // Flag to prevent operations during disposal
 const activeDisposables = ref<MonacoDisposable[]>([]); // Track all disposables
+const isEditorVisible = ref(true); // New state for SQL editor visibility
 
 // --- Computed Properties ---
 const theme = computed(() => (isDark.value ? "logchef-dark" : "logchef-light"));
@@ -240,8 +272,35 @@ const monacoOptions = reactive(getDefaultMonacoOptions());
 const handleMount = (editor: MonacoEditor) => {
   if (isDisposing.value) return; // Prevent setup if disposing
 
+  console.log("QueryEditor: Mounting editor");
   editorRef.value = editor;
   initMonacoSetup(); // Ensure themes/languages are registered (runs once internally)
+
+  // Register editor with global management system
+  registerEditorInstance(editor);
+
+  // Create a unique model key for this editor instance
+  const modelKey = `${props.activeMode}-${props.sourceId}`;
+  console.log(`Creating/reusing model with key: ${modelKey}`);
+
+  try {
+    // Use cached model if available with sourceId as identifier
+    const model = getOrCreateModel(
+      editorContent.value,
+      props.activeMode,
+      props.sourceId,
+      modelKey
+    );
+
+    // Set the model to the editor
+    editor.setModel(model);
+    console.log(`Model set successfully: ${model.id}`);
+  } catch (e) {
+    console.error("Error setting up editor model:", e);
+    // Create a fallback model directly if cache retrieval fails
+    const fallbackModel = monaco.editor.createModel(editorContent.value, props.activeMode);
+    editor.setModel(fallbackModel);
+  }
 
   // Check if we should be in read-only mode
   const isLoading = exploreStore.isLoadingOperation('executeQuery');
@@ -266,7 +325,6 @@ const handleMount = (editor: MonacoEditor) => {
   );
 
   // Add minimal keyboard event listener that only prevents new lines in LogchefQL mode
-  // without executing the query or interfering with autocomplete
   const domNode = editor.getDomNode();
   if (domNode) {
     const keyHandler = (e: KeyboardEvent) => {
@@ -448,10 +506,25 @@ watch(() => props.schema, (newSchema) => {
   lastSchemaHash = schemaKeys;
 
   if (editorRef.value && !isDisposing.value) {
-    console.log("QueryEditor: Schema actually changed, re-registering completions.");
-    registerCompletionProvider();
+    // Use requestIdleCallback to defer non-critical operation
+    if (window.requestIdleCallback) {
+      window.requestIdleCallback(() => {
+        if (editorRef.value && !isDisposing.value) {
+          console.log("QueryEditor: Schema changed, re-registering completions (deferred).");
+          registerCompletionProvider();
+        }
+      }, { timeout: 1000 });
+    } else {
+      // Fallback for browsers without requestIdleCallback
+      setTimeout(() => {
+        if (editorRef.value && !isDisposing.value) {
+          console.log("QueryEditor: Schema changed, re-registering completions (timeout).");
+          registerCompletionProvider();
+        }
+      }, 100);
+    }
   }
-}, { deep: true });
+}, { deep: true, flush: 'post' });
 
 
 // Watch for loading state to make editor read-only
@@ -644,12 +717,36 @@ const focusEditor = (revealLastPosition = false) => {
   });
 };
 
-
 // --- Disposal ---
-const safelyDisposeEditor = () => {
+const safelyDisposeEditor = (fullDisposal = false) => {
   if (isDisposing.value) return;
   isDisposing.value = true;
-  console.log('QueryEditor: Starting disposal...');
+
+  // If this is a lightweight disposal (deactivation), use our optimized method
+  if (!fullDisposal) {
+    const editor = editorRef.value;
+    if (editor) {
+      console.log('QueryEditor: Performing lightweight disposal (deactivation)');
+      lightweightEditorDisposal(editor);
+
+      // Dispose any active disposables except the editor itself
+      [...activeDisposables.value].forEach(disposable => {
+        try {
+          disposable.dispose();
+        } catch (e) { console.warn("Error disposing resource:", e); }
+      });
+      activeDisposables.value = [];
+
+      // Release the flag after lightweight disposal
+      setTimeout(() => {
+        isDisposing.value = false;
+      }, 50);
+    }
+    return;
+  }
+
+  // Full disposal for unmount
+  console.log('QueryEditor: Starting full disposal...');
 
   // Dispose the active completion provider
   if (activeCompletionProvider.value) {
@@ -668,29 +765,92 @@ const safelyDisposeEditor = () => {
   activeDisposables.value = [];
 
   const editor = editorRef.value;
-  editorRef.value = null; // Clear ref immediately
+  if (editor) {
+    // Unregister from global tracking
+    unregisterEditorInstance(editor);
 
-  // Use a minimal timeout to ensure disposal happens after any pending rendering/updates
-  setTimeout(() => {
-    if (editor) {
-      try {
-        const model = editor.getModel();
-        if (model && !model.isDisposed()) {
-          // Detach model before disposing editor
-          editor.setModel(null);
-          model.dispose();
+    // The model is now handled by the global cache, so we don't need to dispose it
+    // Just detach it from this editor instance
+    editor.setModel(null);
+
+    // Don't dispose the editor immediately to avoid race conditions
+    setTimeout(() => {
+      if (editor) {
+        try {
+          editor.dispose();
+          console.log('QueryEditor: Editor instance fully disposed.');
+        } catch (e) {
+          console.error("Error during editor instance disposal:", e);
         }
-        editor.dispose(); // Dispose the editor instance itself
-        console.log('QueryEditor: Editor instance disposed.');
-      } catch (e) {
-        console.error("Error during editor instance disposal:", e);
       }
-    }
-  }, 50); // Small delay
+    }, 50);
+  }
+
+  editorRef.value = null; // Clear ref
 };
 
+// Handle full disposal on unmount
 onBeforeUnmount(() => {
-  safelyDisposeEditor();
+  safelyDisposeEditor(true); // Full disposal
+});
+
+// Handle lightweight disposal on deactivation (when kept alive)
+onDeactivated(() => {
+  console.log('QueryEditor: Deactivated');
+  if (editorRef.value && !isDisposing.value) {
+    safelyDisposeEditor(false); // Lightweight disposal
+  }
+});
+
+// Handle reactivation
+onActivated(() => {
+  console.log('QueryEditor: Component activated');
+  if (editorRef.value) {
+    // Use enhanced reactivation that properly handles models
+    reactivateEditor(
+      editorRef.value,
+      props.activeMode,
+      editorContent.value,
+      props.sourceId
+    );
+
+    // After reactivation, refresh the editor state
+    nextTick(() => {
+      if (editorRef.value) {
+        // Force a layout calculation
+        editorRef.value.layout();
+
+        // Try to focus the editor
+        focusEditor(false); // Don't move cursor to end
+        console.log('QueryEditor: Editor reactivated and focused');
+      }
+    });
+  } else {
+    // If there's no editor reference, the component might be mounting for the first time
+    console.log('QueryEditor: No editor ref available on activation, will be created during mount');
+  }
+});
+
+// Toggle SQL editor visibility
+const toggleSqlEditorVisibility = () => {
+  isEditorVisible.value = !isEditorVisible.value;
+  
+  // If we're showing the editor again, focus it after a brief delay
+  if (isEditorVisible.value) {
+    nextTick(() => {
+      setTimeout(() => {
+        focusEditor(false);
+      }, 50);
+    });
+  }
+};
+
+// Watch for mode changes to reset visibility
+watch(() => props.activeMode, (newMode) => {
+  // Always show editor when switching modes
+  if (newMode === 'logchefql') {
+    isEditorVisible.value = true;
+  }
 });
 
 // --- Expose ---
@@ -698,7 +858,8 @@ defineExpose({
   submitQuery,
   // clearEditor is now handled by the parent
   focus: focusEditor, // Expose focus method
-  code: computed(() => editorContent.value)
+  code: computed(() => editorContent.value),
+  toggleSqlEditorVisibility // Expose toggle method
 });
 
 
@@ -1171,5 +1332,15 @@ const handleNewQueryClick = () => {
 
 :deep([role="tab"]) {
   padding: 6px 12px !important;
+}
+
+/* Styles for SQL preview when editor is hidden */
+.sql-preview {
+  border-radius: 0 0 6px 6px;
+  transition: background-color 0.2s;
+}
+
+.sql-preview:hover {
+  background-color: hsl(var(--muted) / 0.6);
 }
 </style>

@@ -1,14 +1,16 @@
 services:
   logchef:
-    image: mr-karan/logchef:latest
+    image: ghcr.io/mr-karan/logchef:latest
     container_name: logchef
     restart: on-failure
     ports:
       - "8125:8125"
     configs:
       - source: logchef_config
-        target: /app/config.toml
+        target: /etc/logchef/config.toml
         mode: 0444
+    volumes:
+      - logchef-data:/data
     depends_on:
       clickhouse:
         condition: service_healthy
@@ -23,10 +25,14 @@ services:
       retries: 3
       start_period: 10s
 
+
   clickhouse:
     image: clickhouse/clickhouse-server:24.8.4
     container_name: clickhouse
     restart: on-failure
+    ports:
+      - "127.0.0.1:8123:8123"
+      - "127.0.0.1:9000:9000"
     configs:
       - source: clickhouse_config
         target: /etc/clickhouse-server/config.d/logchef.xml
@@ -62,7 +68,7 @@ services:
     container_name: dex
     restart: on-failure
     ports:
-      - "5556:5556"
+      - "127.0.0.1:5556:5556"
     configs:
       - source: dex_config
         target: /etc/dex/config.yaml
@@ -86,13 +92,12 @@ services:
     depends_on:
       logchef:
         condition: service_healthy
-    ports:
-      - "8686:8686"
     command: ["-c", "/etc/vector/vector.toml"]
     networks:
       - logchef_net
 
 volumes:
+  logchef-data:
   clickhouse-data:
   clickhouse-logs:
 
@@ -108,7 +113,7 @@ configs:
       host = "0.0.0.0"
 
       [sqlite]
-      path = "local.db"
+      path = "/data/local.db"
 
       [oidc]
       # Use explicit URLs for each endpoint instead of discovery
@@ -127,11 +132,12 @@ configs:
 
       [auth]
       admin_emails = ["admin@logchef.internal"]
-      session_duration = "8h"
+      session_duration = "24h"
       max_concurrent_sessions = 1
 
       [logging]
       level = "debug"
+
 
   dex_config:
     content: |

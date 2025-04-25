@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, watch, computed, nextTick } from 'vue';
+import { ref, onMounted, onBeforeUnmount, watch, computed, nextTick, onActivated, onDeactivated } from 'vue';
 import { useColorMode } from '@vueuse/core';
 const isMounted = ref(true);
 import { toCalendarDateTime, CalendarDateTime } from '@internationalized/date';
@@ -81,6 +81,12 @@ const initialDataLoaded = ref(false);
 const lastProcessedTimestamp = ref<number | null>(null);
 const currentGroupBy = ref<string>('');
 const currentGranularity = ref<string>(''); // Store the granularity used
+const lastFetchTimestamp = ref<number>(0);
+const pendingFetchTimeoutId = ref<number | null>(null);
+// Add a data loaded flag that remains true even after loading completes
+const hasLoadedData = ref(false);
+// Track fetch requests that are already scheduled to avoid duplicates
+const scheduledFetches = ref<Set<string>>(new Set());
 
 // Access stores
 const exploreStore = useExploreStore();
@@ -552,9 +558,9 @@ const convertHistogramData = (buckets: HistogramData[]) => {
                 xAxisIndex: 0,
                 start: 0,
                 end: 100,
-                zoomOnMouseWheel: true,
+                zoomOnMouseWheel: false, // Disable mouse wheel zoom
                 moveOnMouseMove: true,
-                moveOnMouseWheel: true
+                moveOnMouseWheel: false // Disable mouse wheel move
             },
             {
                 type: 'slider', // The visual slider component (often at the bottom)
@@ -592,14 +598,60 @@ const convertHistogramData = (buckets: HistogramData[]) => {
 };
 
 // Debounced fetch function to prevent multiple simultaneous calls
-const debouncedFetchHistogramData = debounce(async (forceGranularity?: string) => {
-    if (isChartLoading.value) return; // Skip if already loading
-    await fetchHistogramData(forceGranularity);
-}, 200);
+const debouncedFetchHistogramData = debounce(async (forceGranularity?: string, source: string = 'unknown') => {
+    // Create a unique fetch ID to track this specific fetch request
+    const fetchId = Date.now();
+    console.log(`Histogram: debouncedFetchHistogramData(${fetchId}, source=${source}) - Starting`);
+
+    // Remove this fetch source from scheduled fetches
+    scheduledFetches.value.delete(source);
+
+    // Skip if already loading to prevent duplicate requests
+    if (isChartLoading.value) {
+        console.log(`Histogram: debouncedFetchHistogramData(${fetchId}, source=${source}) - Skipping, chart is already loading`);
+        return;
+    }
+
+    // Skip if we've already loaded data within the last 2 seconds (covers both paths)
+    const now = Date.now();
+    if (hasLoadedData.value && now - lastFetchTimestamp.value < 2000) {
+        console.log(`Histogram: debouncedFetchHistogramData(${fetchId}, source=${source}) - Skipping, data already loaded ${now - lastFetchTimestamp.value}ms ago`);
+        return;
+    }
+
+    // Mark fetch time BEFORE making the API call
+    lastFetchTimestamp.value = now;
+
+    // Set loading state immediately to prevent other fetch attempts
+    isChartLoading.value = true;
+
+    console.log(`Histogram: debouncedFetchHistogramData(${fetchId}, source=${source}) - Proceeding with data fetch`);
+
+    // Execute the actual fetch
+    try {
+        await fetchHistogramData(forceGranularity);
+        console.log(`Histogram: debouncedFetchHistogramData(${fetchId}, source=${source}) - Completed successfully`);
+        // Mark that we have successfully loaded data
+        hasLoadedData.value = true;
+        initialDataLoaded.value = true;
+    } catch (error) {
+        console.error(`Histogram: debouncedFetchHistogramData(${fetchId}, source=${source}) - Failed with error:`, error);
+    } finally {
+        // Always ensure loading state is reset
+        isChartLoading.value = false;
+    }
+}, 300);
 
 // Fetch histogram data from the backend
 const fetchHistogramData = async (forceGranularity?: string) => {
+    console.log("Histogram: Starting fetchHistogramData function");
+
     if (!isMounted.value || !hasValidSource.value || !currentSourceId.value || !currentTeamId.value) {
+        console.log("Histogram: Early return - " +
+            (!isMounted.value ? "not mounted" :
+                !hasValidSource.value ? "invalid source" :
+                    !currentSourceId.value ? "no source ID" :
+                        !currentTeamId.value ? "no team ID" : "unknown reason"));
         histogramData.value = [];
         return;
     }
@@ -608,6 +660,7 @@ const fetchHistogramData = async (forceGranularity?: string) => {
         isChartLoading.value = true;
 
         // Use the same query preparation logic as the main log query
+        console.log("Histogram: Preparing query for execution");
         const queryResult = prepareQueryForExecution();
 
         if (!queryResult.success) {
@@ -615,6 +668,8 @@ const fetchHistogramData = async (forceGranularity?: string) => {
             histogramData.value = [];
             return;
         }
+
+        console.log("Histogram: Query prepared successfully, calling fetchHistogramData");
 
         // Call the histogram service with the properly prepared SQL
         const response = await HistogramService.fetchHistogramData({
@@ -638,11 +693,15 @@ const fetchHistogramData = async (forceGranularity?: string) => {
             groupBy: props.groupBy
         });
 
+        console.log("Histogram: Response received:", response.success);
+
         if (response.success && response.data) {
+            console.log("Histogram: Data loaded successfully", response.data.data?.length || 0, "data points");
             histogramData.value = response.data.data || [];
             currentGranularity.value = response.data.granularity || ''; // Store granularity
             initialDataLoaded.value = true;
         } else {
+            console.warn("Histogram: No data or failed response", response.error);
             histogramData.value = [];
             currentGranularity.value = ''; // Reset on failure
         }
@@ -652,6 +711,7 @@ const fetchHistogramData = async (forceGranularity?: string) => {
         histogramData.value = [];
     } finally {
         isChartLoading.value = false;
+        console.log("Histogram: Fetch complete, isChartLoading set to false");
     }
 };
 
@@ -852,54 +912,90 @@ watch(() => [props.isLoading, histogramData.value], () => {
     updateChartOptions();
 }, { deep: true });
 
-// Watch for changes that should trigger data reload - but ONLY react to lastExecutionTimestamp changes
+// Unified watcher for lastExecutionTimestamp that coordinates with other data sources
 watch(
     () => exploreStore.lastExecutionTimestamp,
     (newTimestamp, oldTimestamp) => {
         // Skip if we're already loading
-        if (isChartLoading.value) return;
+        if (isChartLoading.value) {
+            console.log("Histogram: Skipping lastExecutionTimestamp watcher - chart is already loading");
+            return;
+        }
 
         // Handle undefined/null timestamps
         const safeNewTimestamp = newTimestamp || null;
         const safeOldTimestamp = oldTimestamp || null;
 
         // Skip if timestamp hasn't changed or if it's the same one we already processed
-        if (safeNewTimestamp === safeOldTimestamp || safeNewTimestamp === lastProcessedTimestamp.value) return;
+        if (safeNewTimestamp === safeOldTimestamp || safeNewTimestamp === lastProcessedTimestamp.value) {
+            console.log("Histogram: Skipping lastExecutionTimestamp watcher - timestamp unchanged or already processed");
+            return;
+        }
 
         // Update the last processed timestamp
         lastProcessedTimestamp.value = safeNewTimestamp;
 
-        // Fetch new data if we have a valid source (this should happen when query is executed)
+        // Clear any pending timeout to avoid multiple queued fetches
+        if (pendingFetchTimeoutId.value !== null) {
+            console.log('Histogram: Cancelling previous fetch timeout');
+            clearTimeout(pendingFetchTimeoutId.value);
+            pendingFetchTimeoutId.value = null;
+            // Also remove from scheduled fetches
+            scheduledFetches.value.delete('timestamp');
+        }
+
+        // Only schedule fetch if we have a valid source
         if (hasValidSource.value && currentSourceId.value) {
-            console.log('Histogram fetching data due to lastExecutionTimestamp change:', safeNewTimestamp);
-            debouncedFetchHistogramData();
+            // Use a consistent delay for better predictability
+            const fetchDelay = 500;
+            console.log(`Histogram: Scheduling data fetch with ${fetchDelay}ms delay due to lastExecutionTimestamp change`);
+
+            // Add to scheduled fetches
+            scheduledFetches.value.add('timestamp');
+
+            pendingFetchTimeoutId.value = setTimeout(() => {
+                pendingFetchTimeoutId.value = null;
+
+                // Check if data was loaded while we were waiting
+                if (hasLoadedData.value && Date.now() - lastFetchTimestamp.value < 1000) {
+                    console.log('Histogram: Skipping scheduled fetch - data already loaded recently');
+                    scheduledFetches.value.delete('timestamp');
+                    return;
+                }
+
+                // Double check component is still mounted and not already loading
+                if (isMounted.value && !isChartLoading.value) {
+                    console.log('Histogram: Executing delayed data fetch for timestamp:', safeNewTimestamp);
+                    debouncedFetchHistogramData(undefined, 'timestamp');
+                } else {
+                    console.log('Histogram: Skipping scheduled fetch - component unmounted or already loading');
+                }
+                scheduledFetches.value.delete('timestamp');
+            }, fetchDelay) as unknown as number;
         } else if (currentSourceId.value) {
-            console.warn('Skipping histogram data fetch for disconnected source');
+            console.warn('Histogram: Skipping data fetch for disconnected source');
             histogramData.value = [];
         }
     },
-    { immediate: true } // Add immediate option to ensure it runs on component mount
+    { immediate: false }
 );
 
 // Add a separate deep watcher specifically for time range changes
+// NOTE: We no longer automatically fetch data when time range changes
+// Data will only be fetched when a query is executed
 watch(
     () => props.timeRange,
     (newRange, oldRange) => {
-        // Show loading state and fetch data when time range changes significantly
-
         // Skip if no valid source
         if (!hasValidSource.value || !currentSourceId.value) return;
 
-        // Only trigger if time range actually changed
+        // Only handle UI updates if time range actually changed
         if (newRange && oldRange &&
             (newRange.start?.toString() !== oldRange.start?.toString() ||
                 newRange.end?.toString() !== oldRange.end?.toString())) {
 
-            // Show loading state immediately to cover the data fetch delay
-            isChartLoading.value = true;
-
             // Only clear data if this is a completely different time range
-            // This prevents showing outdated data
+            // This prevents showing outdated data while maintaining the dirty state
             if (histogramData.value.length > 0) {
                 const firstBucketTime = new Date(histogramData.value[0].bucket).getTime();
                 const lastBucketTime = new Date(histogramData.value[histogramData.value.length - 1].bucket).getTime();
@@ -919,8 +1015,8 @@ watch(
                 }
             }
 
-            // Fetch new data for the updated time range
-            debouncedFetchHistogramData();
+            // We don't fetch new data here anymore - it will be fetched when the query is executed
+            console.log("LogHistogram: Time range changed, waiting for query execution to refresh data");
         }
     },
     { deep: true }
@@ -1172,6 +1268,7 @@ watch(
 // Component lifecycle
 onMounted(async () => {
     isMounted.value = true;
+    console.log("LogHistogram: Component mounted");
 
     // Wait for multiple ticks to ensure DOM is fully rendered
     for (let i = 0; i < 5; i++) {
@@ -1180,14 +1277,61 @@ onMounted(async () => {
 
     // Initialize chart
     await initChart();
+    console.log("LogHistogram: Chart initialized");
 
-    // Load data if:
-    // 1. We have a valid source
-    // 2. A query has already been executed (lastExecutionTimestamp exists)
-    if (hasValidSource.value && currentSourceId.value && exploreStore.lastExecutionTimestamp) {
-        console.log('Histogram loading initial data on mount');
-        lastProcessedTimestamp.value = exploreStore.lastExecutionTimestamp;
-        debouncedFetchHistogramData();
+    // Single pathway to determine if we should fetch on mount
+    if (hasValidSource.value && currentSourceId.value) {
+        console.log('LogHistogram: Valid source detected on mount');
+
+        // Prioritize using lastExecutionTimestamp if available
+        if (exploreStore.lastExecutionTimestamp) {
+            console.log('LogHistogram: Using lastExecutionTimestamp for initial data load');
+            lastProcessedTimestamp.value = exploreStore.lastExecutionTimestamp;
+
+            // Check if we're already scheduled from the timestamp watcher
+            if (scheduledFetches.value.has('timestamp')) {
+                console.log('LogHistogram: Fetch already scheduled from timestamp watcher, skipping mount fetch');
+                return;
+            }
+
+            // Delay initial fetch to avoid race conditions
+            scheduledFetches.value.add('mount-timestamp');
+            setTimeout(() => {
+                if (isMounted.value && !isChartLoading.value && !hasLoadedData.value) {
+                    console.log("LogHistogram: Executing initial data fetch via lastExecutionTimestamp");
+                    debouncedFetchHistogramData(undefined, 'mount-timestamp');
+                } else {
+                    console.log("LogHistogram: Skipping mount fetch - component unmounted, loading, or data already loaded");
+                }
+                scheduledFetches.value.delete('mount-timestamp');
+            }, 600);
+        }
+        // Fallback to using timeRange if available but no lastExecutionTimestamp
+        else if (props.timeRange && props.timeRange.start && props.timeRange.end) {
+            console.log("LogHistogram: Using timeRange for initial data load (no lastExecutionTimestamp)");
+
+            // Check if we already have data or a scheduled fetch from elsewhere
+            if (hasLoadedData.value || scheduledFetches.value.size > 0) {
+                console.log('LogHistogram: Data already loaded or fetch already scheduled, skipping timeRange fetch');
+                return;
+            }
+
+            // Use a longer delay for timeRange-based fetch to give priority to timestamp-based fetch
+            scheduledFetches.value.add('mount-timerange');
+            setTimeout(() => {
+                if (isMounted.value && !isChartLoading.value && !hasLoadedData.value) {
+                    console.log("LogHistogram: Executing initial data fetch via timeRange");
+                    debouncedFetchHistogramData(undefined, 'mount-timerange');
+                } else {
+                    console.log("LogHistogram: Skipping timeRange fetch - component unmounted, loading, or data already loaded");
+                }
+                scheduledFetches.value.delete('mount-timerange');
+            }, 1000);
+        } else {
+            console.log("LogHistogram: No valid data source for initial fetch (missing timeRange or lastExecutionTimestamp)");
+        }
+    } else {
+        console.log("LogHistogram: Not loading data on mount - invalid source or no source ID");
     }
 });
 
@@ -1206,6 +1350,45 @@ onBeforeUnmount(() => {
         chart.dispose();
         chart = null;
     }
+});
+
+// Add onActivated and onDeactivated lifecycle hooks
+onActivated(async () => {
+    console.log("LogHistogram: Component activated");
+    isMounted.value = true;
+
+    // Wait for DOM to be fully rendered before reinitializing
+    await nextTick();
+
+    try {
+        if (!chart && chartRef.value) {
+            // If chart was disposed, reinitialize it
+            console.log("LogHistogram: Initializing chart on activation");
+            await initChart();
+
+            // Fetch data again if we have a valid context
+            if (hasValidSource.value && currentSourceId.value && exploreStore.lastExecutionTimestamp) {
+                console.log('LogHistogram: Reactivated - fetching data');
+                lastProcessedTimestamp.value = exploreStore.lastExecutionTimestamp;
+                await fetchHistogramData();
+            }
+        } else if (chart) {
+            // If chart still exists, resize it to fit container and refresh
+            console.log("LogHistogram: Resizing existing chart on activation");
+            chart.resize();
+
+            // Force redraw with current data
+            updateChartOptions();
+        }
+    } catch (e) {
+        console.error('Error during histogram reactivation:', e);
+    }
+});
+
+onDeactivated(() => {
+    console.log("LogHistogram: Component deactivated");
+    // Don't dispose the chart or set isMounted to false
+    // We want to keep the chart instance alive for faster reactivation
 });
 </script>
 
