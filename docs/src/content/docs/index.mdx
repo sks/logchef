@@ -2,7 +2,7 @@
 title: Logchef
 description: Modern, high-performance log analytics platform
 hero:
-  tagline: Purpose-built log analytics UI for Clickhouse
+  tagline: Purpose-built log analytics UI for ClickHouse
   actions:
     - text: Quick Start
       link: /docs/getting-started/quickstart
@@ -20,14 +20,16 @@ hero:
 
 import { Card, CardGrid } from "@astrojs/starlight/components";
 
-## Why Logchef?
+## What is Logchef?
 
-Logchef is a modern log analytics platform that provides a powerful visualization and query layer for Clickhouse. It's designed to make log exploration intuitive and efficient, whether you're using our optimized OTEL schema or connecting to your existing Clickhouse tables.
+Logchef is a dedicated log query and visualization interface built specifically for ClickHouse. It fills a critical gap in the ClickHouse ecosystem, providing a powerful log explorer without reinventing log collection or storage.
+
+**Focus on querying, not ingestion:** Logchef intentionally doesn't handle log collection, relying instead on established tools like Vector, Filebeat, Promtail, or Logstash that already do this job reliably.
 
 <CardGrid stagger>
-  <Card title="Universal Clickhouse UI" icon="document">
-    Connect to any Clickhouse table and start analyzing logs immediately. No
-    rigid schemas, no migrations, just connect and query.
+  <Card title="Specialized for ClickHouse" icon="document">
+    Purpose-built interface that leverages ClickHouse's columnar architecture and
+    analytical capabilities for log exploration.
   </Card>
   <Card title="Dual Query Modes" icon="open-book">
     Simple search syntax for quick exploration, full SQL power when you need it.
@@ -37,18 +39,29 @@ Logchef is a modern log analytics platform that provides a powerful visualizatio
     Multi-tenant by design with Teams and Sources. Control who sees what with
     granular access controls.
   </Card>
-  <Card title="Clickhouse-Powered" icon="rocket">
-    Leverage Clickhouse's incredible performance for lightning-fast queries over
-    massive log volumes.
+  <Card title="Schema Agnostic" icon="setting">
+    Works with any ClickHouse log table structure. No forced migrations or schema
+    changes to your existing setup.
   </Card>
 </CardGrid>
+
+## Why ClickHouse for Logs?
+
+ClickHouse's columnar architecture makes it ideal for log analytics:
+
+- **Blazing-fast aggregations** over billions of log entries
+- **Efficient compression** dramatically reduces storage costs
+- **Powerful SQL** with analytical extensions for complex log queries
+- **Column-oriented design** optimized for searching specific fields in large datasets
+
+Logchef provides the missing piece: a specialized, user-friendly interface to unlock this potential.
 
 ## Key Features
 
 ### Query Your Way
 
 - **Simple Search Syntax**: `status=200`, `level="error" AND service="payment-api"`
-- **Full SQL Power**: Write raw Clickhouse SQL for complex analysis
+- **Full SQL Power**: Write raw ClickHouse SQL for complex analysis
 - **Collections**: Save and organize reusable queries per source for your team
 - **Smart Field Suggestions**: Intelligent field name autocompletion as you type
 
@@ -61,18 +74,19 @@ Logchef is a modern log analytics platform that provides a powerful visualizatio
 ### Flexible Integration
 
 - **Any Log Source**: Application logs, HTTP logs, system logs - you name it
-- **Multiple Collectors**: Works with Vector, Fluentbit, or any tool that can write to Clickhouse
+- **Bring Your Own Collection**: Works with Vector, Fluentbit, or any tool that can write to ClickHouse
 - **Schema Agnostic**: Use our optimized OTEL schema or your existing table structure
 
 ### Built for Scale
 
-- **Clickhouse Performance**: Lightning-fast queries over terabytes of logs
-- **Resource Efficient**: Minimal overhead on top of your Clickhouse instance
+- **ClickHouse Performance**: Lightning-fast queries over terabytes of logs
+- **Resource Efficient**: Minimal overhead on top of your ClickHouse instance
+- **Single Binary**: Simple deployment with just one executable
 - **Production Ready**: Used by teams handling millions of log entries daily
 
 ## Try It Out
 
-Visit our [demo instance](https://logchef.app) to explore Logchef's features:
+Visit our [demo instance](https://demo.logchef.app) to explore Logchef's features:
 
 1. Choose your Team
 2. Select a Log Source

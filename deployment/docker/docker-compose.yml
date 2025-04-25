@@ -1,16 +1,14 @@
 services:
   logchef:
-    image: mr-karan/logchef:latest
+    image: ghcr.io/mr-karan/logchef:latest
     container_name: logchef
     restart: on-failure
-    # Port 8125 is only needed internally by Caddy
-    # ports:
-    #  - "8125:8125"
+    ports:
+      - "8125:8125"
     configs:
       - source: logchef_config
         target: /etc/logchef/config.toml
         mode: 0444
-    # Mount volume for SQLite database persistence
     volumes:
       - logchef-data:/data
     depends_on:
@@ -27,30 +25,14 @@ services:
       retries: 3
       start_period: 10s
 
-  caddy:
-    image: caddy:2-alpine
-    container_name: caddy
-    restart: on-failure
-    ports:
-      - "80:80"
-      - "443:443"
-    configs:
-      - source: caddy_config
-        target: /etc/caddy/Caddyfile
-        mode: 0444
-    volumes:
-      - caddy_data:/data
-      - caddy_config:/config
-    networks:
-      - logchef_net
-    depends_on:
-      logchef:
-        condition: service_healthy
 
   clickhouse:
     image: clickhouse/clickhouse-server:24.8.4
     container_name: clickhouse
     restart: on-failure
+    ports:
+      - "127.0.0.1:8123:8123"
+      - "127.0.0.1:9000:9000"
     configs:
       - source: clickhouse_config
         target: /etc/clickhouse-server/config.d/logchef.xml
@@ -86,7 +68,7 @@ services:
     container_name: dex
     restart: on-failure
     ports:
-      - "5556:5556"
+      - "127.0.0.1:5556:5556"
     configs:
       - source: dex_config
         target: /etc/dex/config.yaml
@@ -110,20 +92,14 @@ services:
     depends_on:
       logchef:
         condition: service_healthy
-    # Port 8686 is not needed for this internal demo setup
-    # ports:
-    #   - "8686:8686"
     command: ["-c", "/etc/vector/vector.toml"]
     networks:
       - logchef_net
 
 volumes:
-  # Add volume for logchef SQLite data
   logchef-data:
   clickhouse-data:
   clickhouse-logs:
-  caddy_data:
-  caddy_config:
 
 networks:
   logchef_net:
@@ -150,60 +126,18 @@ configs:
 
       client_id = "logchef"
       client_secret = "logchef-secret"
-      # Browser-facing redirect URL (this should match the Caddy host)
-      redirect_url = "http://localhost:80/api/v1/auth/callback"
+      # Browser-facing redirect URL
+      redirect_url = "http://localhost:8125/api/v1/auth/callback"
       scopes = ["openid", "email", "profile"]
 
       [auth]
       admin_emails = ["admin@logchef.internal"]
-      session_duration = "8h"
+      session_duration = "24h"
       max_concurrent_sessions = 1
 
       [logging]
       level = "debug"
 
-  caddy_config:
-    content: |
-      {
-          # Global Caddy configuration
-          admin off
-      }
-
-      # Server block for the demo instance
-      :80 {
-          # Enable logging
-          log {
-              output stdout
-              format json
-          }
-
-          # Handle /api/v1/health endpoint for health checks
-          handle /api/v1/health {
-              reverse_proxy logchef:8125
-          }
-
-          # Block non-GET requests to admin endpoints in demo mode
-          handle /api/v1/admin/* {
-              # Block non-GET methods for admin endpoints
-              @block_methods {
-                  method POST PUT DELETE PATCH
-              }
-              header Content-Type application/json
-              respond @block_methods `{"status":"error","message":"This operation is not permitted in demo mode","error_type":"DEMO_INSTANCE"}` 403
-
-              # Forward allowed GET requests to logchef
-              reverse_proxy logchef:8125
-          }
-
-          handle /api/v1/* {
-              reverse_proxy logchef:8125
-          }
-
-          # Handle all other requests (frontend assets)
-          handle {
-              reverse_proxy logchef:8125
-          }
-      }
 
   dex_config:
     content: |
@@ -227,7 +161,7 @@ configs:
       staticClients:
         - id: logchef
           redirectURIs:
-            - "http://localhost:80/api/v1/auth/callback"
+            - "http://localhost:8125/api/v1/auth/callback"
           name: "LogChef"
           secret: logchef-secret
 

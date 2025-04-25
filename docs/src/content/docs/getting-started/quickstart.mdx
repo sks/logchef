@@ -3,22 +3,23 @@ title: Quick Start Guide
 description: Get started with Logchef in minutes
 ---
 
-This guide will help you get Logchef up and running quickly. We'll cover installation, basic setup, and your first log query.
+This guide will help you get Logchef up and running quickly. We'll cover installation, basic setup, and how to make your first log query.
 
 ## Prerequisites
 
-- Docker (recommended) or ability to run Linux binaries
+- Docker (for the recommended setup) or a Linux/macOS system for binary installation
 - A Clickhouse instance (included in Docker setup)
-- An SSO Provider (Dex included in Docker setup)
-- Vector for log collection (optional)
+- SSO Provider (Dex is included in the Docker setup)
 
-## Installation
+## Installation Options
 
 ### Using Docker (Recommended)
 
+The Docker setup is the easiest way to get started with Logchef, as it includes everything you need: Logchef, Clickhouse, Dex SSO, and Vector for demo data.
+
 ```bash
 # Download the compose file
-curl -LO https://github.com/mr-karan/logchef/raw/master/docker-compose.yml
+curl -LO https://github.com/mr-karan/logchef/raw/master/deployment/docker/docker-compose.yml
 
 # Start the services
 docker compose up -d
@@ -26,64 +27,126 @@ docker compose up -d
 
 This will start:
 
-- Logchef UI on port 8125
-- Clickhouse on ports 8123 (HTTP) and 9000 (Native)
-- Dex (SSO Provider) on port 5556 (accessible at http://dex:5556)
-- Vector on port 8686
+- Logchef UI and API on port 8125 (accessible at http://localhost:8125)
+- Clickhouse for log storage (ports 8123 and 9000)
+- Dex SSO provider on port 5556
+- Vector for generating demo logs
 
-### Using Binary
+After starting, you can access the Logchef UI at `http://localhost:8125`.
+
+### Using Pre-built Binaries
+
+For production deployments or running without Docker, you can download pre-built binaries:
 
 ```bash
-# Download the latest release
-curl -LO https://github.com/mr-karan/logchef/releases/latest/download/logchef_linux_amd64
+# Download the latest release for your platform (example for Linux amd64)
+curl -L -O https://github.com/mr-karan/logchef/releases/latest/download/logchef_linux_amd64.tar.gz
 
-# Make it executable
-chmod +x logchef_linux_amd64
+# Extract the archive
+tar xzf logchef_linux_amd64.tar.gz
 
-# Run Logchef
-./logchef_linux_amd64
+# Make the binary executable
+chmod +x logchef
+
+# Create a basic configuration file
+curl -L -O https://github.com/mr-karan/logchef/raw/main/config.toml
+
+# Edit the config file to match your environment
+# You'll need to update the OIDC settings and database path
+
+# Run Logchef with your config
+./logchef -config config.toml
 ```
 
-## First Steps
+### Building from Source
 
-1. Visit `http://localhost:8125` in your browser
-2. You'll be redirected to Dex SSO login
-3. Use the default credentials:
-   - Email: `admin@example.com`
+If you prefer to build from source:
+
+```bash
+# Clone the repository
+git clone https://github.com/mr-karan/logchef.git
+cd logchef
+
+# Build the frontend and backend
+just build
+
+# Run with the default config
+just run
+```
+
+## First Login
+
+1. After starting Logchef, visit `http://localhost:8125` in your browser
+2. You'll be redirected to the SSO login page
+3. For the Docker setup, use the default credentials:
+   - Email: `admin@logchef.internal`
    - Password: `password`
 
-## Configure Your First Data Source
+## Initial Setup
 
-1. Navigate to Settings > Data Sources
-2. Click "Add Data Source"
+Before you can start querying logs, you need to set up a team, create a data source, and assign the source to your team.
+
+### 1. Create a Team
+
+1. Navigate to Access > Teams
+2. Click "Add Team"
+3. Enter a team name (e.g., "Engineering")
+4. Save the team
+
+### 2. Add Yourself to the Team
+
+1. From the Teams page, select your newly created team
+2. Under Team Members, click "Add User"
+3. Add your email address and select appropriate permissions
+4. Save changes
+
+### 3. Configure a Data Source
+
+1. Navigate to Sources > Manage Sources
+2. Click "Add Source"
 3. Enter your Clickhouse connection details:
-   ```yaml
-   host: localhost
-   port: 9000
-   database: default
-   table: logs
+   ```
+   Name: Demo Logs
+   Host: localhost (or clickhouse if using Docker)
+   Port: 9000
+   Database: default
+   Table: logs
    ```
 4. Test the connection and save
 
-## Write Your First Query
+### 4. Assign the Source to Your Team
 
-1. Go to the Query Interface
-2. Try a simple query:
-   ```sql
-   SELECT
-     timestamp,
-     level,
-     message
-   FROM logs
-   WHERE timestamp >= now() - INTERVAL 1 HOUR
-   ORDER BY timestamp DESC
-   LIMIT 100
-   ```
-3. Click "Run Query" to see your results
+1. Navigate to Access > Teams
+2. Select your team
+3. Under Data Sources, click "Add Source"
+4. Select the source you created and save
+
+## Writing Your First Query
+
+Now you're ready to explore your logs:
+
+1. Go to the Explore page
+2. Select your team and data source
+3. Try some example queries:
+
+Basic search:
+```
+namespace="syslog"
+```
+
+Filter by severity:
+```
+namespace="syslog" and severity_text!="INFO"
+```
+
+Search for specific text in the log body:
+```
+namespace="syslog" and body="error"
+```
 
 ## Next Steps
 
-- Learn about [Query Interface](/docs/user-guide/query-interface)
-- Set up [Vector Integration](/docs/integration/vector)
-- Configure [User Management](/docs/admin/user-management)
-- Create [Dashboards](/docs/user-guide/dashboards)
+- Learn more about the [search syntax](/guide/search-syntax)
+- Explore [advanced querying examples](/guide/examples)
+- Set up [Vector integration](/integration/vector) for your own logs
+- Learn about [user management](/core/user-management)

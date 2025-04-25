@@ -31,8 +31,14 @@ export default defineConfig({
               label: "Configuration Guide",
               link: "/getting-started/configuration",
             },
-            { label: "Vector Setup", link: "/integration/vector" },
             { label: "Schema Design", link: "/integration/schema-design" },
+          ],
+        },
+        {
+          label: "Tutorials",
+          items: [
+            { label: "Shipping Logs with Vector (OTEL)", link: "/tutorials/vector-otel" },
+            { label: "NGINX Logs in ClickHouse", link: "/tutorials/nginx-logs" },
           ],
         },
         {
