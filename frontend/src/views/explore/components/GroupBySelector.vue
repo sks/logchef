@@ -20,15 +20,11 @@ const props = defineProps<Props>()
 const exploreStore = useExploreStore()
 const sourcesStore = useSourcesStore()
 
-// Group by field with computed default value based on severity field
+// Group by field with computed default - no default grouping
 const groupByField = computed({
   get() {
-    // Return the stored value or compute default
-    return exploreStore.groupByField ||
-      // Use severity field as default if available
-      (sourcesStore.currentSourceDetails?._meta_severity_field ?
-        sourcesStore.currentSourceDetails._meta_severity_field :
-        '__none__');
+    // Return the stored value or use no grouping as default
+    return exploreStore.groupByField || '__none__';
   },
   set(value) {
     exploreStore.setGroupByField(value);

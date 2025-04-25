@@ -443,10 +443,8 @@ watch(isInitializing, async (initializing, prevInitializing) => {
         isLoadingQuery.value = false
 
         if (fetchResult.success && savedQueriesStore.selectedQuery) {
-          // Check and reset groupByField if not already set in the query
-          if (!exploreStore.groupByField) {
-            exploreStore.setGroupByField('__none__')
-          }
+          // Always use no grouping by default
+          exploreStore.setGroupByField('__none__')
 
           // Pass the fetched query object to loadSavedQuery
           const loadResult = await loadSavedQuery(savedQueriesStore.selectedQuery)

@@ -119,31 +119,96 @@ const windowResizeEventCallback = debounce(async () => {
     }
 }, 100);
 
-// Revised color palette for a more professional/dev-tool look
-const colorPalette = [
-    '#5470C6', // Blue
-    '#EE6666', // Red
-    '#FAC858', // Yellow
-    '#91CC75', // Green
-    '#73C0DE', // Light Blue
-    '#FC8452', // Orange
-    '#9A60B4', // Purple
-    '#ea7ccc', // Pink (more muted)
-    // Extended colors if needed
-    '#3BA272', // Darker Green
-    '#27727B', // Teal Blue
-    '#E062AE', // Magenta
-    '#FFB980', // Light Orange
-    '#5D9B9B', // Grayish Cyan
-    '#D48265', // Brownish Orange
-    '#C6E579', // Lime Green (more muted)
-    '#F4E001', // Bright Yellow (use sparingly)
-    '#B5C334', // Olive Green
-    '#6E7074', // Gray
-    '#8378EA', // Lavender
-    '#7A455D'  // Maroon
-];
+// Define severity-based color mapping for more consistent coloring
+const severityColorMapping: Record<string, string> = {
+    // Error levels
+    'error': '#EE6666',     // Red
+    'err': '#EE6666',       // Red
+    'fatal': '#CC3333',     // Darker Red
+    'critical': '#CC3333',  // Darker Red
+    'crit': '#CC3333',      // Darker Red
+    'alert': '#CC3333',     // Darker Red
+    'emerg': '#990000',     // Even Darker Red
+    'emergency': '#990000', // Even Darker Red
 
+    // Warning levels
+    'warn': '#FAC858',      // Yellow
+    'warning': '#FAC858',   // Yellow
+
+    // Info levels
+    'info': '#5470C6',      // Blue
+    'information': '#5470C6', // Blue
+    'notice': '#73C0DE',    // Light Blue
+
+    // Debug levels
+    'debug': '#91CC75',     // Green
+    'trace': '#B5C334',     // Olive Green
+    'verbose': '#C6E579',   // Lime Green
+    
+    // HTTP methods
+    'get': '#73C0DE',       // Light Blue
+    'post': '#91CC75',      // Green
+    'put': '#FAC858',       // Yellow
+    'delete': '#EE6666',    // Red
+    'patch': '#9A60B4',     // Purple
+    'options': '#6E7074',   // Gray
+    'head': '#5D9B9B',      // Grayish Cyan
+    
+    // Default/fallback color palette for other values
+    'default0': '#5470C6',  // Blue
+    'default1': '#91CC75',  // Green
+    'default2': '#FAC858',  // Yellow
+    'default3': '#EE6666',  // Red
+    'default4': '#73C0DE',  // Light Blue
+    'default5': '#FC8452',  // Orange
+    'default6': '#9A60B4',  // Purple
+    'default7': '#ea7ccc',  // Pink (more muted)
+    'default8': '#3BA272',  // Darker Green
+    'default9': '#27727B',  // Teal Blue
+    'default10': '#E062AE', // Magenta
+    'default11': '#FFB980', // Light Orange
+    'default12': '#5D9B9B', // Grayish Cyan
+    'default13': '#D48265', // Brownish Orange
+    'default14': '#C6E579', // Lime Green (more muted)
+    'default15': '#8378EA', // Lavender
+};
+
+
+// Helper function to get color for a group value based on severity level mapping
+const getColorForGroupValue = (value: string): string => {
+    if (!value) return severityColorMapping['default0'];
+
+    // Convert to lowercase for case-insensitive matching
+    const lowerValue = value.toLowerCase();
+    
+    // Check if we have a direct mapping
+    if (severityColorMapping[lowerValue]) {
+        return severityColorMapping[lowerValue];
+    }
+    
+    // Check for partial matches in common log level words
+    for (const [key, color] of Object.entries(severityColorMapping)) {
+        // Skip default colors
+        if (key.startsWith('default')) continue;
+        
+        // Check if the value contains a known severity word
+        if (lowerValue.includes(key)) {
+            return color;
+        }
+    }
+    
+    // Calculate a deterministic index for consistent coloring
+    // This ensures the same unknown value always gets the same color
+    let hash = 0;
+    for (let i = 0; i < value.length; i++) {
+        hash = ((hash << 5) - hash) + value.charCodeAt(i);
+        hash |= 0; // Convert to 32bit integer
+    }
+    
+    // Get absolute value and mod with number of default colors
+    const index = Math.abs(hash) % 16;
+    return severityColorMapping[`default${index}`];
+};
 
 // Convert the histogram data to chart options with Kibana-like styling
 const convertHistogramData = (buckets: HistogramData[]) => {
@@ -284,13 +349,13 @@ const convertHistogramData = (buckets: HistogramData[]) => {
                 large: true,
                 largeThreshold: 100,
                 itemStyle: {
-                    color: colorPalette[index % colorPalette.length],
+                    color: getColorForGroupValue(group),
                     borderRadius: [2, 2, 0, 0],
                     opacity: 0.85
                 },
                 emphasis: {
                     itemStyle: {
-                        color: colorPalette[index % colorPalette.length],
+                        color: getColorForGroupValue(group),
                         opacity: 1,
                         shadowBlur: 4,
                         shadowColor: 'rgba(0, 0, 0, 0.2)'
