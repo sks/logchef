@@ -84,6 +84,7 @@ type LogQueryRequest struct {
 	Sort           *SortOptions `json:"sort,omitempty"`
 	Window         string       `json:"window,omitempty"`   // For histogram queries: time window size like "1m", "5m", "1h"
 	GroupBy        string       `json:"group_by,omitempty"` // For histogram queries: field to group by
+	Timezone       string       `json:"timezone,omitempty"` // User's timezone identifier (e.g., 'America/New_York', 'UTC')
 }
 
 // LogQueryResult represents the result of a log query

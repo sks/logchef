@@ -43,6 +43,7 @@ export interface QueryParams {
   query_type?: string; // 'logchefql' or 'sql'
   window?: string;
   group_by?: string;
+  timezone?: string; // User's timezone identifier (e.g., 'America/New_York', 'UTC')
 }
 
 export interface QueryStats {
@@ -107,8 +108,9 @@ export function prepareQueryParams(params: {
   timeRange?: TimeRange;
   window?: string;
   groupBy?: string;
+  timezone?: string;
 }): QueryParams {
-  const { query, queryType, startTimestamp, endTimestamp, limit = 100, window, groupBy } = params;
+  const { query, queryType, startTimestamp, endTimestamp, limit = 100, window, groupBy, timezone } = params;
 
   // Use the raw SQL value as is - SQL transformation should happen before calling this function
   return {
@@ -118,7 +120,8 @@ export function prepareQueryParams(params: {
     end_timestamp: endTimestamp,
     query_type: queryType,
     window,
-    group_by: groupBy
+    group_by: groupBy,
+    timezone
   };
 }
 
@@ -152,6 +155,16 @@ export const exploreApi = {
     return apiClient.post<HistogramResponse>(
       `/teams/${teamId}/sources/${sourceId}/logs/histogram`,
       histogramParams
+    );
+  },
+
+  getLogContext: (sourceId: number, params: LogContextRequest, teamId: number) => {
+    if (!teamId) {
+      throw new Error("Team ID is required for getting log context");
+    }
+    return apiClient.post<LogContextResponse>(
+      `/teams/${teamId}/sources/${sourceId}/logs/context`,
+      params
     );
   }
 };

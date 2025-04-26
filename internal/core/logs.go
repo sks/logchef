@@ -107,6 +107,7 @@ type HistogramParams struct {
 	Window    string // e.g., "1m", "5m", "1h"
 	Query     string // Optional filter query (WHERE clause part)
 	GroupBy   string // Optional field to group by
+	Timezone  string // Optional timezone identifier (e.g., 'America/New_York', 'UTC')
 }
 
 // HistogramResponse structures the response for histogram data.
@@ -203,8 +204,9 @@ func GetHistogramData(ctx context.Context, db *sqlite.DB, chDB *clickhouse.Manag
 		StartTime: params.StartTime,
 		EndTime:   params.EndTime,
 		Window:    chWindow,
-		Query:     params.Query,   // Pass the optional filter query
-		GroupBy:   params.GroupBy, // Pass the optional group by field
+		Query:     params.Query,    // Pass the optional filter query
+		GroupBy:   params.GroupBy,  // Pass the optional group by field
+		Timezone:  params.Timezone, // Pass the optional timezone identifier
 	}
 
 	// 4. Call the ClickHouse client method

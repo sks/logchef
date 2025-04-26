@@ -1,23 +1,9 @@
 import { h } from "vue";
 import { ArrowDown, ArrowUp } from "lucide-vue-next";
-import { Button } from "@/components/ui/button";
 import type { Column, ColumnDef, Row } from "@tanstack/vue-table";
 import { formatTimestamp, formatLogContent } from "@/lib/utils";
 import { getSeverityClasses } from "@/lib/utils";
 import type { ColumnInfo } from '@/api/explore';
-
-/**
- * Column type definitions with consistent size handling
- */
-// Common column types for width settings
-type ColumnType = 'timestamp' | 'severity' | 'message' | 'default' | 'status' | 'flags' | 'wide' | 'extraWide';
-
-// Column width configuration
-interface ColumnWidthConfig {
-  defaultWidth: number;
-  minWidth: number;
-  maxWidth: number;
-}
 
 // Width configurations for each column type
 const COLUMN_WIDTH_CONFIG: Record<string, { minWidth: number, defaultWidth: number, maxWidth: number }> = {

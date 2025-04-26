@@ -16,6 +16,7 @@ type LogQueryParams struct {
 	EndTime   time.Time
 	Limit     int
 	RawSQL    string
+	Timezone  string // Timezone identifier for time-based operations
 }
 
 // LogQueryResult represents the structured result of a log query.
@@ -74,6 +75,7 @@ type HistogramParams struct {
 	Window    TimeWindow
 	Query     string // Optional: Raw SQL WHERE clause conditions to apply.
 	GroupBy   string // Optional: Field to group by for segmented histograms.
+	Timezone  string // Optional: Timezone identifier for time-based operations.
 }
 
 // HistogramData represents a single time bucket and its log count in a histogram.
@@ -126,37 +128,43 @@ func extractWhereClause(sql string) string {
 // It applies the time range and an optional WHERE clause filter provided in params.Query.
 // If params.GroupBy is provided, results will be grouped by that field.
 func (c *Client) GetHistogramData(ctx context.Context, tableName, timestampField string, params HistogramParams) (*HistogramResult, error) {
+	// Get timezone or default to UTC
+	timezone := params.Timezone
+	if timezone == "" {
+		timezone = "UTC"
+	}
+
 	// Convert TimeWindow to the appropriate ClickHouse interval function
 	var intervalFunc string
 	switch params.Window {
 	case TimeWindow1s:
-		intervalFunc = fmt.Sprintf("toStartOfSecond(%s)", timestampField)
+		intervalFunc = fmt.Sprintf("toStartOfSecond(%s, '%s')", timestampField, timezone)
 	case TimeWindow5s, TimeWindow10s, TimeWindow15s, TimeWindow30s:
 		// For custom second intervals, use toStartOfInterval
 		seconds := strings.TrimSuffix(string(params.Window), "s")
-		intervalFunc = fmt.Sprintf("toStartOfInterval(%s, INTERVAL %s SECOND)", timestampField, seconds)
+		intervalFunc = fmt.Sprintf("toStartOfInterval(%s, INTERVAL %s SECOND, '%s')", timestampField, seconds, timezone)
 	case TimeWindow1m:
-		intervalFunc = fmt.Sprintf("toStartOfMinute(%s)", timestampField)
+		intervalFunc = fmt.Sprintf("toStartOfMinute(%s, '%s')", timestampField, timezone)
 	case TimeWindow5m:
-		intervalFunc = fmt.Sprintf("toStartOfFiveMinute(%s)", timestampField)
+		intervalFunc = fmt.Sprintf("toStartOfFiveMinute(%s, '%s')", timestampField, timezone)
 	case TimeWindow10m, TimeWindow15m, TimeWindow30m:
 		// For custom minute intervals, use toStartOfInterval
 		minutes := strings.TrimSuffix(string(params.Window), "m")
-		intervalFunc = fmt.Sprintf("toStartOfInterval(%s, INTERVAL %s MINUTE)", timestampField, minutes)
+		intervalFunc = fmt.Sprintf("toStartOfInterval(%s, INTERVAL %s MINUTE, '%s')", timestampField, minutes, timezone)
 	case TimeWindow1h:
-		intervalFunc = fmt.Sprintf("toStartOfHour(%s)", timestampField)
+		intervalFunc = fmt.Sprintf("toStartOfHour(%s, '%s')", timestampField, timezone)
 	case TimeWindow2h, TimeWindow3h, TimeWindow6h, TimeWindow12h, TimeWindow24h:
 		// For custom hour intervals, use toStartOfInterval
 		hours := strings.TrimSuffix(string(params.Window), "h")
-		intervalFunc = fmt.Sprintf("toStartOfInterval(%s, INTERVAL %s HOUR)", timestampField, hours)
+		intervalFunc = fmt.Sprintf("toStartOfInterval(%s, INTERVAL %s HOUR, '%s')", timestampField, hours, timezone)
 	default:
 		return nil, fmt.Errorf("invalid time window: %s", params.Window)
 	}
 
-	// Construct time range filter
-	timeFilter := fmt.Sprintf("%s >= toDateTime('%s') AND %s <= toDateTime('%s')",
-		timestampField, params.StartTime.Format("2006-01-02 15:04:05"),
-		timestampField, params.EndTime.Format("2006-01-02 15:04:05"))
+	// Construct time range filter with timezone
+	timeFilter := fmt.Sprintf("%s >= toDateTime('%s', '%s') AND %s <= toDateTime('%s', '%s')",
+		timestampField, params.StartTime.Format("2006-01-02 15:04:05"), timezone,
+		timestampField, params.EndTime.Format("2006-01-02 15:04:05"), timezone)
 
 	// Extract WHERE clauses from user query
 	var whereClauseStr string

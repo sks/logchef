@@ -54,6 +54,12 @@ func (s *Server) handleQueryLogs(c *fiber.Ctx) error {
 	if req.EndTimestamp > 0 {
 		params.EndTime = time.UnixMilli(req.EndTimestamp)
 	}
+	// Use the provided timezone or default to UTC
+	if req.Timezone != "" {
+		params.Timezone = req.Timezone
+	} else {
+		params.Timezone = "UTC"
+	}
 
 	// Execute query via core function.
 	result, err := core.QueryLogs(c.Context(), s.sqlite, s.clickhouse, s.log, sourceID, params)
@@ -126,6 +132,13 @@ func (s *Server) handleGetHistogram(c *fiber.Ctx) error {
 	// Only add groupBy if it's not empty
 	if req.GroupBy != "" && strings.TrimSpace(req.GroupBy) != "" {
 		params.GroupBy = req.GroupBy
+	}
+
+	// Use the provided timezone or default to UTC
+	if req.Timezone != "" {
+		params.Timezone = req.Timezone
+	} else {
+		params.Timezone = "UTC"
 	}
 
 	// Execute histogram query via core function.

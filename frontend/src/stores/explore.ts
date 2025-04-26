@@ -104,6 +104,8 @@ export interface ExploreState {
   lastExecutionTimestamp?: number | null;
   // Group by field for histogram
   groupByField?: string | null;
+  // User's selected timezone identifier (e.g., 'America/New_York', 'UTC')
+  selectedTimezoneIdentifier?: string | null;
 }
 
 const DEFAULT_QUERY_STATS: QueryStats = {
@@ -129,6 +131,7 @@ export const useExploreStore = defineStore("explore", () => {
     lastExecutionTimestamp: null,
     selectedQueryId: null, // Initialize new state
     groupByField: null, // Initialize the groupByField
+    selectedTimezoneIdentifier: null, // Initialize the timezone identifier
   });
 
   // Getters
@@ -179,6 +182,19 @@ export const useExploreStore = defineStore("explore", () => {
       start,
       end,
     };
+  }
+
+  // Get the current timezone identifier
+  function getTimezoneIdentifier(): string {
+    // Use the stored timezone or default to the browser's local timezone
+    return state.data.value.selectedTimezoneIdentifier || 
+      (localStorage.getItem('logchef_timezone') === 'utc' ? 'UTC' : getLocalTimeZone());
+  }
+
+  // Set the timezone identifier
+  function setTimezoneIdentifier(timezone: string) {
+    state.data.value.selectedTimezoneIdentifier = timezone;
+    console.log(`Explore store: Set timezone identifier to ${timezone}`);
   }
 
   // Actions
@@ -340,6 +356,7 @@ export const useExploreStore = defineStore("explore", () => {
       lastExecutionTimestamp: null,
       selectedQueryId: null, // Reset selectedQueryId
       groupByField: state.data.value.groupByField, // Preserve groupByField
+      selectedTimezoneIdentifier: state.data.value.selectedTimezoneIdentifier, // Preserve timezone identifier
     };
   }
 
@@ -445,7 +462,8 @@ export const useExploreStore = defineStore("explore", () => {
           limit: state.data.value.limit,
           start_timestamp: timestamps.start,
           end_timestamp: timestamps.end,
-          query_type: state.data.value.activeMode
+          query_type: state.data.value.activeMode,
+          timezone: getTimezoneIdentifier(),
       };
 
       // Use the centralized API calling mechanism from base store
@@ -627,6 +645,7 @@ export const useExploreStore = defineStore("explore", () => {
     selectedQueryId: computed(() => state.data.value.selectedQueryId),
     activeSavedQueryName: computed(() => state.data.value.activeSavedQueryName),
     groupByField: computed(() => state.data.value.groupByField),
+    selectedTimezoneIdentifier: computed(() => state.data.value.selectedTimezoneIdentifier),
 
     // Loading state
     isLoading: state.isLoading,
@@ -654,6 +673,7 @@ export const useExploreStore = defineStore("explore", () => {
     getLogContext,
     clearError,
     setGroupByField,
+    setTimezoneIdentifier,
 
     // Loading state helpers
     isLoadingOperation: state.isLoadingOperation,

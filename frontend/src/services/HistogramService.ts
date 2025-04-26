@@ -19,6 +19,7 @@ export interface HistogramParams {
   queryType: 'logchefql' | 'sql';
   granularity?: string; // '1m', '10m', '1h', '1d', etc.
   groupBy?: string; // Optional field to group by
+  timezone?: string; // User's timezone identifier (e.g., 'America/New_York', 'UTC')
 }
 
 export class HistogramService {
@@ -113,6 +114,7 @@ export class HistogramService {
         },
         queryType: params.queryType,
         groupBy: params.groupBy,
+        timezone: params.timezone,
         queryLength: params.query?.length || 0
       });
 
@@ -137,12 +139,18 @@ export class HistogramService {
         queryParams.group_by = params.groupBy;
       }
 
+      // Include timezone if provided
+      if (params.timezone) {
+        queryParams.timezone = params.timezone;
+      }
+
       console.log("HistogramService: Calling API with params:", {
         sourceId: params.sourceId,
         timestamps: [queryParams.start_timestamp, queryParams.end_timestamp],
         queryType: queryParams.query_type,
         window: queryParams.window,
-        groupBy: queryParams.group_by
+        groupBy: queryParams.group_by,
+        timezone: queryParams.timezone
       });
 
       // Call the API with all parameters in the body
