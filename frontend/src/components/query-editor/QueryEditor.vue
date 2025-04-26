@@ -1,20 +1,29 @@
 <template>
   <div class="query-editor">
     <!-- Header Bar (Keep existing structure) -->
-    <div class="flex items-center justify-between bg-muted/40 rounded-t-md px-3 py-1.5 border border-b-0">
+    <div
+      class="flex items-center justify-between bg-muted/40 rounded-t-md px-3 py-1.5 border border-b-0"
+    >
       <div class="flex items-center gap-3">
         <!-- Fields Panel Toggle -->
-        <button class="p-1 text-muted-foreground hover:text-foreground flex items-center"
-          @click="$emit('toggle-fields')" :title="props.showFieldsPanel ? 'Hide fields panel' : 'Show fields panel'"
-          aria-label="Toggle fields panel">
+        <button
+          class="p-1 text-muted-foreground hover:text-foreground flex items-center"
+          @click="$emit('toggle-fields')"
+          :title="
+            props.showFieldsPanel ? 'Hide fields panel' : 'Show fields panel'
+          "
+          aria-label="Toggle fields panel"
+        >
           <PanelRightClose v-if="props.showFieldsPanel" class="h-4 w-4" />
           <PanelRightOpen v-else class="h-4 w-4" />
         </button>
 
         <!-- Tabs for Mode Switching -->
-        <Tabs :model-value="props.activeMode"
+        <Tabs
+          :model-value="props.activeMode"
           @update:model-value="(value: string | number) => $emit('update:activeMode', asEditorMode(value), true)"
-          class="w-auto">
+          class="w-auto"
+        >
           <TabsList class="grid grid-cols-2 w-fit">
             <TabsTrigger value="logchefql">
               <div class="flex-fix">
@@ -35,14 +44,18 @@
         <div class="text-xs text-muted-foreground ml-3">
           <template v-if="props.tableName">
             <span class="mr-1">Table:</span>
-            <code class="bg-muted px-1.5 py-0.5 rounded text-xs">{{ props.tableName }}</code>
+            <code class="bg-muted px-1.5 py-0.5 rounded text-xs">{{
+              props.tableName
+            }}</code>
           </template>
           <span v-else class="italic text-orange-500">No table selected</span>
         </div>
 
         <!-- New: Active Query Indicator -->
-        <div v-if="activeSavedQueryName"
-          class="flex items-center bg-primary/10 text-primary text-xs font-medium px-2 py-0.5 rounded-md ml-3">
+        <div
+          v-if="activeSavedQueryName"
+          class="flex items-center bg-primary/10 text-primary text-xs font-medium px-2 py-0.5 rounded-md ml-3"
+        >
           <FileEdit class="h-3.5 w-3.5 mr-1.5" />
           <span>{{ activeSavedQueryName }}</span>
         </div>
@@ -53,7 +66,12 @@
         <TooltipProvider v-if="isEditingExistingQuery">
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="outline" size="sm" class="h-7 gap-1" @click="handleNewQueryClick">
+              <Button
+                variant="outline"
+                size="sm"
+                class="h-7 gap-1"
+                @click="handleNewQueryClick"
+              >
                 <FilePlus2 class="h-3.5 w-3.5" />
                 <span class="text-xs">New</span>
               </Button>
@@ -63,57 +81,119 @@
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
-        
+
         <!-- SQL Toggle Button - Only show when in SQL mode -->
         <TooltipProvider v-if="props.activeMode === 'clickhouse-sql'">
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="outline" size="sm" class="h-7 gap-1" @click="toggleSqlEditorVisibility">
+              <Button
+                variant="outline"
+                size="sm"
+                class="h-7 gap-1"
+                @click="toggleSqlEditorVisibility"
+              >
                 <EyeOff v-if="isEditorVisible" class="h-3.5 w-3.5" />
                 <Eye v-else class="h-3.5 w-3.5" />
-                <span class="text-xs">{{ isEditorVisible ? 'Hide' : 'Show' }} SQL</span>
+                <span class="text-xs"
+                  >{{ isEditorVisible ? "Hide" : "Show" }} SQL</span
+                >
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
-              <p>{{ isEditorVisible ? 'Hide' : 'Show' }} SQL query editor</p>
+              <p>{{ isEditorVisible ? "Hide" : "Show" }} SQL query editor</p>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
 
         <!-- Saved Queries Dropdown -->
-        <SavedQueriesDropdown :selected-source-id="props.sourceId" :selected-team-id="props.teamId"
+        <SavedQueriesDropdown
+          :selected-source-id="props.sourceId"
+          :selected-team-id="props.teamId"
           @select-saved-query="(query: SavedTeamQuery) => $emit('select-saved-query', query)"
-          @save="$emit('save-query')" class="h-8" />
+          @save="$emit('save-query')"
+          class="h-8"
+        />
 
         <!-- Help Icon -->
         <HoverCard :open-delay="200">
           <HoverCardTrigger as-child>
-            <button class="p-1 text-muted-foreground hover:text-foreground" aria-label="Show syntax help">
+            <button
+              class="p-1 text-muted-foreground hover:text-foreground"
+              aria-label="Show syntax help"
+            >
               <HelpCircle class="h-4 w-4" />
             </button>
           </HoverCardTrigger>
-          <HoverCardContent class="w-80 backdrop-blur-md bg-card text-card-foreground border-border shadow-lg"
-            side="bottom" align="end">
+          <HoverCardContent
+            class="w-80 backdrop-blur-md bg-card text-card-foreground border-border shadow-lg"
+            side="bottom"
+            align="end"
+          >
             <!-- Help Content (Keep existing template) -->
             <div class="space-y-2">
-              <h4 class="text-sm font-semibold">{{ props.activeMode === 'logchefql' ? 'LogchefQL' : 'SQL' }} Syntax</h4>
-              <div v-if="props.activeMode === 'logchefql'" class="text-xs space-y-1.5">
-                <div><code class="bg-muted px-1 rounded">field="value"</code> - Exact match</div>
-                <div><code class="bg-muted px-1 rounded">field!="value"</code> - Not equal</div>
-                <div><code class="bg-muted px-1 rounded">field~"pattern"</code> - Regex match</div>
-                <div><code class="bg-muted px-1 rounded">field!~"pattern"</code> - Regex exclusion</div>
-                <div><code class="bg-muted px-1 rounded">field>100</code> - Comparison</div>
-                <div><code class="bg-muted px-1 rounded">(c1 and c2) or c3</code> - Grouping</div>
-                <div class="pt-1"><em>Example: <code
-                      class="bg-muted px-1 rounded">level="error" and status>=500</code></em>
+              <h4 class="text-sm font-semibold">
+                {{ props.activeMode === "logchefql" ? "LogchefQL" : "SQL" }}
+                Syntax
+              </h4>
+              <div
+                v-if="props.activeMode === 'logchefql'"
+                class="text-xs space-y-1.5"
+              >
+                <div>
+                  <code class="bg-muted px-1 rounded">field="value"</code> -
+                  Exact match
+                </div>
+                <div>
+                  <code class="bg-muted px-1 rounded">field!="value"</code> -
+                  Not equal
+                </div>
+                <div>
+                  <code class="bg-muted px-1 rounded">field~"pattern"</code> -
+                  Regex match
+                </div>
+                <div>
+                  <code class="bg-muted px-1 rounded">field!~"pattern"</code> -
+                  Regex exclusion
+                </div>
+                <div>
+                  <code class="bg-muted px-1 rounded">field>100</code> -
+                  Comparison
+                </div>
+                <div>
+                  <code class="bg-muted px-1 rounded">(c1 and c2) or c3</code> -
+                  Grouping
+                </div>
+                <div class="pt-1">
+                  <em
+                    >Example:
+                    <code class="bg-muted px-1 rounded"
+                      >level="error" and status>=500</code
+                    ></em
+                  >
                 </div>
               </div>
               <div v-else class="text-xs space-y-1.5">
-                <div><code class="bg-muted px-1 rounded">SELECT count() FROM {{ tableName || 'table' }}</code></div>
-                <div><code class="bg-muted px-1 rounded">WHERE field = 'value' AND time > now() - interval 1 hour</code>
+                <div>
+                  <code class="bg-muted px-1 rounded"
+                    >SELECT count() FROM {{ tableName || "table" }}</code
+                  >
                 </div>
-                <div><code class="bg-muted px-1 rounded">GROUP BY user ORDER BY count() DESC</code></div>
-                <div class="pt-1"><em>Time range & limit applied if not specified. Use standard ClickHouse SQL.</em>
+                <div>
+                  <code class="bg-muted px-1 rounded"
+                    >WHERE field = 'value' AND time > now() - interval 1
+                    hour</code
+                  >
+                </div>
+                <div>
+                  <code class="bg-muted px-1 rounded"
+                    >GROUP BY user ORDER BY count() DESC</code
+                  >
+                </div>
+                <div class="pt-1">
+                  <em
+                    >Time range & limit applied if not specified. Use standard
+                    ClickHouse SQL.</em
+                  >
                 </div>
               </div>
             </div>
@@ -123,42 +203,82 @@
     </div>
 
     <!-- Monaco Editor Container -->
-    <div class="editor-wrapper" :class="{ 'is-focused': editorFocused }" v-show="isEditorVisible || props.activeMode === 'logchefql'">
-      <div class="editor-container" :class="{
-        'is-empty': isEditorEmpty
-      }" :style="{ height: `${editorHeight}px` }" :data-placeholder="currentPlaceholder" :data-mode="props.activeMode">
+    <div
+      class="editor-wrapper"
+      :class="{ 'is-focused': editorFocused }"
+      v-show="isEditorVisible || props.activeMode === 'logchefql'"
+    >
+      <div
+        class="editor-container"
+        :class="{
+          'is-empty': isEditorEmpty,
+        }"
+        :style="{ height: `${editorHeight}px` }"
+        :data-placeholder="currentPlaceholder"
+        :data-mode="props.activeMode"
+      >
         <!-- Monaco Editor Component with stable key to prevent remounting -->
-        <vue-monaco-editor key="monaco-editor-instance" v-model:value="editorContent" :theme="theme"
-          :language="props.activeMode" :options="monacoOptions" @mount="handleMount" @update:value="handleEditorChange"
-          class="h-full w-full" />
+        <vue-monaco-editor
+          key="monaco-editor-instance"
+          v-model:value="editorContent"
+          :theme="theme"
+          :language="props.activeMode"
+          :options="monacoOptions"
+          @mount="handleMount"
+          @update:value="handleEditorChange"
+          class="h-full w-full"
+        />
       </div>
     </div>
-    
+
     <!-- SQL Preview when editor is hidden -->
-    <div v-if="!isEditorVisible && props.activeMode === 'clickhouse-sql' && !isEditorEmpty" 
-         class="sql-preview p-3 border border-border rounded-md bg-muted/30 text-sm font-mono overflow-hidden cursor-pointer"
-         @click="isEditorVisible = true">
+    <div
+      v-if="
+        !isEditorVisible &&
+        props.activeMode === 'clickhouse-sql' &&
+        !isEditorEmpty
+      "
+      class="sql-preview p-3 border border-border rounded-md bg-card/60 text-sm font-mono overflow-hidden cursor-pointer dark:bg-[#111522]"
+      @click="isEditorVisible = true"
+    >
       <div class="flex items-center justify-between">
-        <div class="text-muted-foreground text-xs font-medium mb-1">SQL Query (collapsed)</div>
-        <Button variant="ghost" size="sm" class="h-6 px-2" @click.stop="isEditorVisible = true">
+        <div class="text-muted-foreground text-xs font-medium mb-1">
+          SQL Query (collapsed)
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          class="h-6 px-2"
+          @click.stop="isEditorVisible = true"
+        >
           <Eye class="h-3.5 w-3.5 mr-1" />
           <span class="text-xs">Show</span>
         </Button>
       </div>
-      <div class="truncate text-xs text-muted-foreground">{{ editorContent }}</div>
+      <div class="truncate text-xs text-muted-foreground">
+        {{ editorContent }}
+      </div>
     </div>
 
     <!-- Error Message Display -->
-    <div v-if="validationError"
-      class="mt-2 p-2 text-sm text-destructive bg-destructive/10 rounded flex items-center gap-2">
+    <div
+      v-if="validationError"
+      class="mt-2 p-2 text-sm text-destructive bg-destructive/10 rounded flex items-center gap-2"
+    >
       <AlertCircle class="h-4 w-4 flex-shrink-0" />
       <span>
         <span class="font-medium">Validation Error: </span>
         {{ validationError }}
-        <span v-if="validationError?.includes('Missing boolean operator')" class="block mt-1 text-xs">
-          Hint: Use <code class="bg-muted px-1 rounded">and</code> or <code class="bg-muted px-1 rounded">or</code>
-          between
-          conditions. Example: <code class="bg-muted px-1 rounded">field1="value" and field2="value"</code>
+        <span
+          v-if="validationError?.includes('Missing boolean operator')"
+          class="block mt-1 text-xs"
+        >
+          Hint: Use <code class="bg-muted px-1 rounded">and</code> or
+          <code class="bg-muted px-1 rounded">or</code> between conditions.
+          Example:
+          <code class="bg-muted px-1 rounded"
+            >field1="value" and field2="value"</code
+          >
         </span>
       </span>
     </div>
@@ -166,33 +286,86 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, shallowRef, watch, onMounted, onBeforeUnmount, onActivated, onDeactivated, nextTick, reactive, watchEffect } from "vue";
+import {
+  ref,
+  computed,
+  shallowRef,
+  watch,
+  onMounted,
+  onBeforeUnmount,
+  onActivated,
+  onDeactivated,
+  nextTick,
+  reactive,
+  watchEffect,
+} from "vue";
 import * as monaco from "monaco-editor";
 import { useDark } from "@vueuse/core";
 import { VueMonacoEditor } from "@guolao/vue-monaco-editor";
-import { HelpCircle, PanelRightOpen, PanelRightClose, AlertCircle, XCircle, FileEdit, FilePlus2, Search, Code2, Eye, EyeOff } from "lucide-vue-next";
-import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import SavedQueriesDropdown from '@/components/collections/SavedQueriesDropdown.vue';
-import type { SavedTeamQuery } from '@/api/savedQueries';
-import { useRoute, useRouter } from 'vue-router';
-import { Button } from '@/components/ui/button';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  HelpCircle,
+  PanelRightOpen,
+  PanelRightClose,
+  AlertCircle,
+  XCircle,
+  FileEdit,
+  FilePlus2,
+  Search,
+  Code2,
+  Eye,
+  EyeOff,
+} from "lucide-vue-next";
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import SavedQueriesDropdown from "@/components/collections/SavedQueriesDropdown.vue";
+import type { SavedTeamQuery } from "@/api/savedQueries";
+import { useRoute, useRouter } from "vue-router";
+import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 import {
-  initMonacoSetup, getDefaultMonacoOptions, getSingleLineModeOptions,
-  getOrCreateModel, registerEditorInstance, unregisterEditorInstance,
-  lightweightEditorDisposal, reactivateEditor
+  initMonacoSetup,
+  getDefaultMonacoOptions,
+  getSingleLineModeOptions,
+  getOrCreateModel,
+  registerEditorInstance,
+  unregisterEditorInstance,
+  lightweightEditorDisposal,
+  reactivateEditor,
 } from "@/utils/monaco";
-import { Parser as LogchefQLParser, State as LogchefQLState, Operator as LogchefQLOperator, VALID_KEY_VALUE_OPERATORS as LogchefQLValidOperators, isNumeric } from "@/utils/logchefql";
+import {
+  Parser as LogchefQLParser,
+  State as LogchefQLState,
+  Operator as LogchefQLOperator,
+  VALID_KEY_VALUE_OPERATORS as LogchefQLValidOperators,
+  isNumeric,
+} from "@/utils/logchefql";
 import { validateLogchefQLWithDetails } from "@/utils/logchefql/api"; // Import detailed validation
-import { validateSQLWithDetails, SQL_KEYWORDS, CLICKHOUSE_FUNCTIONS, SQL_TYPES } from "@/utils/clickhouse-sql";
-import { useExploreStore } from '@/stores/explore';
-import { QueryService } from '@/services/QueryService';
+import {
+  validateSQLWithDetails,
+  SQL_KEYWORDS,
+  CLICKHOUSE_FUNCTIONS,
+  SQL_TYPES,
+} from "@/utils/clickhouse-sql";
+import { useExploreStore } from "@/stores/explore";
+import { QueryService } from "@/services/QueryService";
 // Keep other necessary imports like types...
 // --- Types ---
 type EditorMode = "logchefql" | "clickhouse-sql";
-type EditorChangeEvent = { query: string; mode: EditorMode; isUserInput?: boolean };
+type EditorChangeEvent = {
+  query: string;
+  mode: EditorMode;
+  isUserInput?: boolean;
+};
 // Monaco type aliases for clarity
 type MonacoEditor = monaco.editor.IStandaloneCodeEditor;
 type MonacoModel = monaco.editor.ITextModel;
@@ -201,11 +374,13 @@ type MonacoCompletionItem = monaco.languages.CompletionItem;
 type MonacoPosition = monaco.Position;
 type MonacoRange = monaco.IRange;
 
-
 // --- Props and Emits ---
 const props = defineProps({
   sourceId: { type: Number, required: true },
-  schema: { type: Object as () => Record<string, { type: string }>, required: true },
+  schema: {
+    type: Object as () => Record<string, { type: string }>,
+    required: true,
+  },
   activeMode: { type: String as () => EditorMode, required: true },
   value: { type: String, default: "" },
   placeholder: { type: String, default: "" },
@@ -214,7 +389,7 @@ const props = defineProps({
   showFieldsPanel: { type: Boolean, default: false },
   // SavedQueriesDropdown props
   teamId: { type: Number, required: true },
-  useCurrentTeam: { type: Boolean, default: true }
+  useCurrentTeam: { type: Boolean, default: true },
 });
 
 const emit = defineEmits<{
@@ -248,20 +423,23 @@ const currentPlaceholder = computed(() => {
   // Use prop placeholder if provided, otherwise generate default
   if (props.placeholder) return props.placeholder;
 
-  return props.activeMode === 'logchefql'
+  return props.activeMode === "logchefql"
     ? 'Enter search criteria (e.g., level="error" and status>400)'
-    : `Enter ClickHouse SQL query (e.g., SELECT * FROM ${props.tableName || 'your_table'} WHERE ...)`;
+    : `Enter ClickHouse SQL query (e.g., SELECT * FROM ${
+        props.tableName || "your_table"
+      } WHERE ...)`;
 });
 
 const editorHeight = computed(() => {
-  const content = editorContent.value || '';
+  const content = editorContent.value || "";
   const lines = (content.match(/\n/g) || []).length + 1;
   const baseLineHeight = 21; // Match monaco options
   const padding = 16; // Match monaco options (top + bottom)
-  const minHeight = props.activeMode === 'logchefql' ? 45 : 90;
+  const minHeight = props.activeMode === "logchefql" ? 45 : 90;
   // Calculate height based on lines, ensuring minHeight is respected
   // Add a small buffer for better spacing, especially for single line
-  const calculatedHeight = padding + (lines * baseLineHeight) + (lines > 1 ? 0 : 4);
+  const calculatedHeight =
+    padding + lines * baseLineHeight + (lines > 1 ? 0 : 4);
   return Math.max(minHeight, calculatedHeight);
 });
 
@@ -298,20 +476,23 @@ const handleMount = (editor: MonacoEditor) => {
   } catch (e) {
     console.error("Error setting up editor model:", e);
     // Create a fallback model directly if cache retrieval fails
-    const fallbackModel = monaco.editor.createModel(editorContent.value, props.activeMode);
+    const fallbackModel = monaco.editor.createModel(
+      editorContent.value,
+      props.activeMode
+    );
     editor.setModel(fallbackModel);
   }
 
   // Check if we should be in read-only mode
-  const isLoading = exploreStore.isLoadingOperation('executeQuery');
+  const isLoading = exploreStore.isLoadingOperation("executeQuery");
   if (isLoading) {
     editor.updateOptions({ readOnly: true });
   }
 
   // Add Focus/Blur Listeners
   activeDisposables.value.push(
-    editor.onDidFocusEditorWidget(() => editorFocused.value = true),
-    editor.onDidBlurEditorWidget(() => editorFocused.value = false)
+    editor.onDidFocusEditorWidget(() => (editorFocused.value = true)),
+    editor.onDidBlurEditorWidget(() => (editorFocused.value = false))
   );
 
   // Add Submit Shortcut
@@ -332,12 +513,17 @@ const handleMount = (editor: MonacoEditor) => {
       // 1. It's a bare Enter keypress (no modifier keys)
       // 2. We're in LogchefQL mode
       // 3. No suggestion widget is visible (to allow autocomplete acceptance)
-      if (e.key === 'Enter' &&
-        !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey &&
-        props.activeMode === 'logchefql') {
-
+      if (
+        e.key === "Enter" &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        !e.shiftKey &&
+        props.activeMode === "logchefql"
+      ) {
         // Check if suggestion widget is visible by looking at DOM
-        const suggestWidgetVisible = document.querySelector('.suggest-widget.visible') !== null;
+        const suggestWidgetVisible =
+          document.querySelector(".suggest-widget.visible") !== null;
 
         // Only prevent new line if no suggestion widget is visible
         if (!suggestWidgetVisible) {
@@ -347,13 +533,13 @@ const handleMount = (editor: MonacoEditor) => {
       }
     };
 
-    domNode.addEventListener('keydown', keyHandler);
+    domNode.addEventListener("keydown", keyHandler);
 
     // Add disposal for the event listener
     activeDisposables.value.push({
       dispose: () => {
-        domNode.removeEventListener('keydown', keyHandler);
-      }
+        domNode.removeEventListener("keydown", keyHandler);
+      },
     });
   }
 
@@ -372,7 +558,7 @@ const handleEditorChange = (value: string | undefined) => {
   editorContent.value = currentQuery; // Update internal state FIRST
 
   // Update store based on current mode
-  if (props.activeMode === 'logchefql') {
+  if (props.activeMode === "logchefql") {
     exploreStore.setLogchefqlCode(currentQuery);
   } else {
     exploreStore.setRawSql(currentQuery);
@@ -382,7 +568,11 @@ const handleEditorChange = (value: string | undefined) => {
   validationError.value = null;
 
   // Emit change event - this was manual user input, not URL loading
-  emit("change", { query: currentQuery, mode: props.activeMode, isUserInput: true });
+  emit("change", {
+    query: currentQuery,
+    mode: props.activeMode,
+    isUserInput: true,
+  });
 };
 
 // Function to programmatically update editor content (e.g., from store or clear)
@@ -397,23 +587,31 @@ const runProgrammaticUpdate = (newValue: string) => {
   nextTick(() => {
     isProgrammaticChange.value = false;
     // Emit change event marked as NOT user input (programmatic update)
-    emit("change", { query: newValue, mode: props.activeMode, isUserInput: false });
+    emit("change", {
+      query: newValue,
+      mode: props.activeMode,
+      isUserInput: false,
+    });
   });
 };
 
 // Watch for prop value changes to update editor content
-watch(() => props.value, (newValue) => {
-  if (newValue !== editorContent.value) {
-    runProgrammaticUpdate(newValue || "");
+watch(
+  () => props.value,
+  (newValue) => {
+    if (newValue !== editorContent.value) {
+      runProgrammaticUpdate(newValue || "");
+    }
   }
-});
+);
 
 // --- Synchronization and Option Updates ---
 watchEffect(() => {
   // 1. Sync content from store if it differs from internal state
-  const storeValue = props.activeMode === 'logchefql'
-    ? exploreStore.logchefqlCode
-    : exploreStore.rawSql;
+  const storeValue =
+    props.activeMode === "logchefql"
+      ? exploreStore.logchefqlCode
+      : exploreStore.rawSql;
   const valueToSet = storeValue ?? "";
 
   // Save cursor position before making changes
@@ -444,7 +642,7 @@ watchEffect(() => {
     }
 
     // Get current loading state to ensure read-only flag is consistent
-    const isLoading = exploreStore.isLoadingOperation('executeQuery');
+    const isLoading = exploreStore.isLoadingOperation("executeQuery");
 
     // Apply mode-specific options without recreating the editor
     const options = {
@@ -454,25 +652,25 @@ watchEffect(() => {
       padding: { top: 8, bottom: 8 },
       readOnly: isLoading, // Ensure read-only state is correctly synchronized
       scrollbar: {
-        vertical: 'auto' as const,
-        horizontal: 'auto' as const,
+        vertical: "auto" as const,
+        horizontal: "auto" as const,
         useShadows: false,
         verticalScrollbarSize: 8,
-        horizontalScrollbarSize: 8
+        horizontalScrollbarSize: 8,
       },
       minimap: { enabled: false },
       // Add mode-specific options for LogchefQL
-      ...(props.activeMode === 'logchefql'
+      ...(props.activeMode === "logchefql"
         ? {
-          ...getSingleLineModeOptions(),
-        }
+            ...getSingleLineModeOptions(),
+          }
         : {
-          // SQL-specific configuration - keep line numbers off
-          lineNumbers: 'off' as const,
-          wordWrap: 'on' as const,
-          folding: true,
-          scrollBeyondLastLine: false
-        })
+            // SQL-specific configuration - keep line numbers off
+            lineNumbers: "off" as const,
+            wordWrap: "on" as const,
+            folding: true,
+            scrollBeyondLastLine: false,
+          }),
     };
     editor.updateOptions(options);
 
@@ -496,96 +694,117 @@ watchEffect(() => {
 });
 
 // Watch for schema changes to update completion providers
-let lastSchemaHash = '';
-watch(() => props.schema, (newSchema) => {
-  // Generate a simple hash to determine if schema has meaningfully changed
-  const schemaKeys = Object.keys(newSchema || {}).sort().join(',');
-  if (schemaKeys === lastSchemaHash) {
-    return; // Skip if schema hasn't actually changed
-  }
-  lastSchemaHash = schemaKeys;
-
-  if (editorRef.value && !isDisposing.value) {
-    // Use requestIdleCallback to defer non-critical operation
-    if (window.requestIdleCallback) {
-      window.requestIdleCallback(() => {
-        if (editorRef.value && !isDisposing.value) {
-          console.log("QueryEditor: Schema changed, re-registering completions (deferred).");
-          registerCompletionProvider();
-        }
-      }, { timeout: 1000 });
-    } else {
-      // Fallback for browsers without requestIdleCallback
-      setTimeout(() => {
-        if (editorRef.value && !isDisposing.value) {
-          console.log("QueryEditor: Schema changed, re-registering completions (timeout).");
-          registerCompletionProvider();
-        }
-      }, 100);
+let lastSchemaHash = "";
+watch(
+  () => props.schema,
+  (newSchema) => {
+    // Generate a simple hash to determine if schema has meaningfully changed
+    const schemaKeys = Object.keys(newSchema || {})
+      .sort()
+      .join(",");
+    if (schemaKeys === lastSchemaHash) {
+      return; // Skip if schema hasn't actually changed
     }
-  }
-}, { deep: true, flush: 'post' });
+    lastSchemaHash = schemaKeys;
 
+    if (editorRef.value && !isDisposing.value) {
+      // Use requestIdleCallback to defer non-critical operation
+      if (window.requestIdleCallback) {
+        window.requestIdleCallback(
+          () => {
+            if (editorRef.value && !isDisposing.value) {
+              console.log(
+                "QueryEditor: Schema changed, re-registering completions (deferred)."
+              );
+              registerCompletionProvider();
+            }
+          },
+          { timeout: 1000 }
+        );
+      } else {
+        // Fallback for browsers without requestIdleCallback
+        setTimeout(() => {
+          if (editorRef.value && !isDisposing.value) {
+            console.log(
+              "QueryEditor: Schema changed, re-registering completions (timeout)."
+            );
+            registerCompletionProvider();
+          }
+        }, 100);
+      }
+    }
+  },
+  { deep: true, flush: "post" }
+);
 
 // Watch for loading state to make editor read-only
-watch(() => exploreStore.isLoadingOperation('executeQuery'), (isLoading) => {
-  if (editorRef.value && !isDisposing.value) {
-    // Set read-only state when query is executing
-    editorRef.value.updateOptions({ readOnly: isLoading });
+watch(
+  () => exploreStore.isLoadingOperation("executeQuery"),
+  (isLoading) => {
+    if (editorRef.value && !isDisposing.value) {
+      // Set read-only state when query is executing
+      editorRef.value.updateOptions({ readOnly: isLoading });
 
-    // If loading is complete but editor still appears to be read-only,
-    // force a refresh of the editor options
-    if (!isLoading) {
-      setTimeout(() => {
-        if (editorRef.value && !isDisposing.value) {
-          // Ensure read-only is properly reset
-          editorRef.value.updateOptions({ readOnly: false });
-        }
-      }, 50);
+      // If loading is complete but editor still appears to be read-only,
+      // force a refresh of the editor options
+      if (!isLoading) {
+        setTimeout(() => {
+          if (editorRef.value && !isDisposing.value) {
+            // Ensure read-only is properly reset
+            editorRef.value.updateOptions({ readOnly: false });
+          }
+        }, 50);
+      }
     }
   }
-});
+);
 
 // Add this watch effect after the existing watchEffect to position cursor when a saved query is loaded
-watch(() => exploreStore.selectedQueryId, (newQueryId, oldQueryId) => {
-  if (newQueryId && newQueryId !== oldQueryId) {
-    // When a new saved query is loaded, position cursor at the end of content and focus editor
-    console.log("QueryEditor: Saved query loaded, positioning cursor at end");
-    nextTick(() => {
-      // Add a slight delay to ensure content is fully updated
-      setTimeout(() => {
-        focusEditor(true); // true = position cursor at end
-      }, 100);
-    });
+watch(
+  () => exploreStore.selectedQueryId,
+  (newQueryId, oldQueryId) => {
+    if (newQueryId && newQueryId !== oldQueryId) {
+      // When a new saved query is loaded, position cursor at the end of content and focus editor
+      console.log("QueryEditor: Saved query loaded, positioning cursor at end");
+      nextTick(() => {
+        // Add a slight delay to ensure content is fully updated
+        setTimeout(() => {
+          focusEditor(true); // true = position cursor at end
+        }, 100);
+      });
+    }
   }
-});
+);
 
 // --- Monaco Options Update ---
-watch(() => props.activeMode, (newMode) => {
-  nextTick(() => {
-    if (editorRef.value) {
-      // Apply options based on mode
-      const editor = editorRef.value;
-      const options = {
-        ...getDefaultMonacoOptions(),
-        fontSize: 13,
-        lineHeight: 20,
-        padding: { top: 8, bottom: 8 },
-        scrollbar: {
-          vertical: 'auto' as const,
-          horizontal: 'auto' as const,
-          useShadows: false,
-          verticalScrollbarSize: 8,
-          horizontalScrollbarSize: 8
-        },
-        minimap: { enabled: false }
-      };
+watch(
+  () => props.activeMode,
+  (newMode) => {
+    nextTick(() => {
+      if (editorRef.value) {
+        // Apply options based on mode
+        const editor = editorRef.value;
+        const options = {
+          ...getDefaultMonacoOptions(),
+          fontSize: 13,
+          lineHeight: 20,
+          padding: { top: 8, bottom: 8 },
+          scrollbar: {
+            vertical: "auto" as const,
+            horizontal: "auto" as const,
+            useShadows: false,
+            verticalScrollbarSize: 8,
+            horizontalScrollbarSize: 8,
+          },
+          minimap: { enabled: false },
+        };
 
-      editor.updateOptions(options);
-      editor.layout();
-    }
-  });
-});
+        editor.updateOptions(options);
+        editor.layout();
+      }
+    });
+  }
+);
 
 // --- Completion Providers ---
 const activeCompletionProvider = ref<MonacoDisposable | null>(null);
@@ -603,7 +822,7 @@ const registerCompletionProvider = () => {
   }
 
   let provider: MonacoDisposable | null = null;
-  if (props.activeMode === 'logchefql') {
+  if (props.activeMode === "logchefql") {
     provider = registerLogchefQLCompletionProvider();
   } else {
     provider = registerSQLCompletionProvider();
@@ -634,14 +853,16 @@ const submitQuery = () => {
 
   try {
     let isValid = true;
-    if (currentContent.trim()) { // Only validate non-empty queries
-      if (props.activeMode === 'logchefql') {
+    if (currentContent.trim()) {
+      // Only validate non-empty queries
+      if (props.activeMode === "logchefql") {
         // Use detailed validation to get specific error messages
         const validation = validateLogchefQLWithDetails(currentContent);
         isValid = validation.valid;
         if (!isValid) {
           // Display the specific error message instead of generic one
-          validationError.value = validation.error || "Invalid LogchefQL syntax.";
+          validationError.value =
+            validation.error || "Invalid LogchefQL syntax.";
         }
       } else {
         // Use the enhanced SQL validation with detailed errors
@@ -658,15 +879,20 @@ const submitQuery = () => {
     }
 
     // Update store (might be redundant if handleEditorChange already did, but ensures consistency)
-    if (props.activeMode === 'logchefql') {
-      if (exploreStore.logchefqlCode !== currentContent) exploreStore.setLogchefqlCode(currentContent);
+    if (props.activeMode === "logchefql") {
+      if (exploreStore.logchefqlCode !== currentContent)
+        exploreStore.setLogchefqlCode(currentContent);
     } else {
-      if (exploreStore.rawSql !== currentContent) exploreStore.setRawSql(currentContent);
+      if (exploreStore.rawSql !== currentContent)
+        exploreStore.setRawSql(currentContent);
     }
 
     // Emit submit event
-    emit('submit', { query: currentContent, mode: props.activeMode, isUserInput: true });
-
+    emit("submit", {
+      query: currentContent,
+      mode: props.activeMode,
+      isUserInput: true,
+    });
   } catch (e: any) {
     console.error("Error validating or submitting query:", e);
     validationError.value = e.message || "Error preparing query";
@@ -678,7 +904,11 @@ const focusEditor = (revealLastPosition = false) => {
     // Add a slight delay to allow Monaco to fully process updates after :key change / options update
     setTimeout(() => {
       const editor = editorRef.value;
-      if (editor && !isDisposing.value && document.contains(editor.getDomNode())) {
+      if (
+        editor &&
+        !isDisposing.value &&
+        document.contains(editor.getDomNode())
+      ) {
         console.log("QueryEditor: Attempting focus...");
         editor.focus();
 
@@ -699,19 +929,30 @@ const focusEditor = (revealLastPosition = false) => {
             try {
               editor.setPosition(positionToSet);
               // Use revealPositionInCenterIfOutsideViewport for less jarring scroll
-              editor.revealPositionInCenterIfOutsideViewport(positionToSet, monaco.editor.ScrollType.Smooth);
-              console.log(`QueryEditor: Focused and position set to ${positionToSet.lineNumber}:${positionToSet.column}`);
+              editor.revealPositionInCenterIfOutsideViewport(
+                positionToSet,
+                monaco.editor.ScrollType.Smooth
+              );
+              console.log(
+                `QueryEditor: Focused and position set to ${positionToSet.lineNumber}:${positionToSet.column}`
+              );
             } catch (e) {
               console.warn("QueryEditor: Error setting position/revealing:", e);
             }
           } else {
-            console.log("QueryEditor: Focused, but could not determine position.");
+            console.log(
+              "QueryEditor: Focused, but could not determine position."
+            );
           }
         } else {
-          console.log("QueryEditor: Focused (model not available for positioning).");
+          console.log(
+            "QueryEditor: Focused (model not available for positioning)."
+          );
         }
       } else {
-        console.log("QueryEditor: Focus skipped (editor not ready, disposing, or detached).");
+        console.log(
+          "QueryEditor: Focus skipped (editor not ready, disposing, or detached)."
+        );
       }
     }, 50); // Small delay to allow Monaco to settle
   });
@@ -726,14 +967,18 @@ const safelyDisposeEditor = (fullDisposal = false) => {
   if (!fullDisposal) {
     const editor = editorRef.value;
     if (editor) {
-      console.log('QueryEditor: Performing lightweight disposal (deactivation)');
+      console.log(
+        "QueryEditor: Performing lightweight disposal (deactivation)"
+      );
       lightweightEditorDisposal(editor);
 
       // Dispose any active disposables except the editor itself
-      [...activeDisposables.value].forEach(disposable => {
+      [...activeDisposables.value].forEach((disposable) => {
         try {
           disposable.dispose();
-        } catch (e) { console.warn("Error disposing resource:", e); }
+        } catch (e) {
+          console.warn("Error disposing resource:", e);
+        }
       });
       activeDisposables.value = [];
 
@@ -746,21 +991,25 @@ const safelyDisposeEditor = (fullDisposal = false) => {
   }
 
   // Full disposal for unmount
-  console.log('QueryEditor: Starting full disposal...');
+  console.log("QueryEditor: Starting full disposal...");
 
   // Dispose the active completion provider
   if (activeCompletionProvider.value) {
     try {
       activeCompletionProvider.value.dispose();
-    } catch (e) { console.warn("Error disposing completion provider:", e); }
+    } catch (e) {
+      console.warn("Error disposing completion provider:", e);
+    }
     activeCompletionProvider.value = null;
   }
 
   // Dispose general listeners and actions
-  [...activeDisposables.value].forEach(disposable => {
+  [...activeDisposables.value].forEach((disposable) => {
     try {
       disposable.dispose();
-    } catch (e) { console.warn("Error disposing resource:", e); }
+    } catch (e) {
+      console.warn("Error disposing resource:", e);
+    }
   });
   activeDisposables.value = [];
 
@@ -778,7 +1027,7 @@ const safelyDisposeEditor = (fullDisposal = false) => {
       if (editor) {
         try {
           editor.dispose();
-          console.log('QueryEditor: Editor instance fully disposed.');
+          console.log("QueryEditor: Editor instance fully disposed.");
         } catch (e) {
           console.error("Error during editor instance disposal:", e);
         }
@@ -796,7 +1045,7 @@ onBeforeUnmount(() => {
 
 // Handle lightweight disposal on deactivation (when kept alive)
 onDeactivated(() => {
-  console.log('QueryEditor: Deactivated');
+  console.log("QueryEditor: Deactivated");
   if (editorRef.value && !isDisposing.value) {
     safelyDisposeEditor(false); // Lightweight disposal
   }
@@ -804,7 +1053,7 @@ onDeactivated(() => {
 
 // Handle reactivation
 onActivated(() => {
-  console.log('QueryEditor: Component activated');
+  console.log("QueryEditor: Component activated");
   if (editorRef.value) {
     // Use enhanced reactivation that properly handles models
     reactivateEditor(
@@ -822,19 +1071,21 @@ onActivated(() => {
 
         // Try to focus the editor
         focusEditor(false); // Don't move cursor to end
-        console.log('QueryEditor: Editor reactivated and focused');
+        console.log("QueryEditor: Editor reactivated and focused");
       }
     });
   } else {
     // If there's no editor reference, the component might be mounting for the first time
-    console.log('QueryEditor: No editor ref available on activation, will be created during mount');
+    console.log(
+      "QueryEditor: No editor ref available on activation, will be created during mount"
+    );
   }
 });
 
 // Toggle SQL editor visibility
 const toggleSqlEditorVisibility = () => {
   isEditorVisible.value = !isEditorVisible.value;
-  
+
   // If we're showing the editor again, focus it after a brief delay
   if (isEditorVisible.value) {
     nextTick(() => {
@@ -846,12 +1097,15 @@ const toggleSqlEditorVisibility = () => {
 };
 
 // Watch for mode changes to reset visibility
-watch(() => props.activeMode, (newMode) => {
-  // Always show editor when switching modes
-  if (newMode === 'logchefql') {
-    isEditorVisible.value = true;
+watch(
+  () => props.activeMode,
+  (newMode) => {
+    // Always show editor when switching modes
+    if (newMode === "logchefql") {
+      isEditorVisible.value = true;
+    }
   }
-});
+);
 
 // --- Expose ---
 defineExpose({
@@ -859,9 +1113,8 @@ defineExpose({
   // clearEditor is now handled by the parent
   focus: focusEditor, // Expose focus method
   code: computed(() => editorContent.value),
-  toggleSqlEditorVisibility // Expose toggle method
+  toggleSqlEditorVisibility, // Expose toggle method
 });
-
 
 // --- Completion Provider Logic (Simplified stubs - keep your detailed logic) ---
 // Assume getSuggestionsFromList, getSchemaFieldValues, prepareSuggestionValues remain similar
@@ -878,14 +1131,14 @@ const registerLogchefQLCompletionProvider = (): MonacoDisposable | null => {
         startLineNumber: position.lineNumber,
         endLineNumber: position.lineNumber,
         startColumn: wordInfo.startColumn,
-        endColumn: wordInfo.endColumn
+        endColumn: wordInfo.endColumn,
       };
 
       const lineStartToPosition: MonacoRange = {
         startLineNumber: position.lineNumber,
         endLineNumber: position.lineNumber,
         startColumn: 1,
-        endColumn: position.column
+        endColumn: position.column,
       };
       const textBeforeCursor = model.getValueInRange(lineStartToPosition);
 
@@ -896,21 +1149,23 @@ const registerLogchefQLCompletionProvider = (): MonacoDisposable | null => {
       let incomplete = false;
 
       // Handle "and" operator specifically
-      if (textBeforeCursor.trim().endsWith('and')) {
+      if (textBeforeCursor.trim().endsWith("and")) {
         // Don't trigger completion after 'and' unless there's at least one more character
         // This helps prevent cursor position issues
         return { suggestions: [], incomplete: false };
       }
 
-      if (parser.state === LogchefQLState.KEY ||
+      if (
+        parser.state === LogchefQLState.KEY ||
         parser.state === LogchefQLState.INITIAL ||
-        parser.state === LogchefQLState.BOOL_OP_DELIMITER) {
+        parser.state === LogchefQLState.BOOL_OP_DELIMITER
+      ) {
         if (fieldNames.value.includes(wordInfo.word)) {
           const operatorRange: MonacoRange = {
             startLineNumber: position.lineNumber,
             endLineNumber: position.lineNumber,
             startColumn: position.column,
-            endColumn: position.column
+            endColumn: position.column,
           };
           suggestions = getOperatorsSuggestions(wordInfo.word, operatorRange);
         } else {
@@ -923,10 +1178,14 @@ const registerLogchefQLCompletionProvider = (): MonacoDisposable | null => {
           startLineNumber: position.lineNumber,
           endLineNumber: position.lineNumber,
           startColumn: wordInfo.startColumn,
-          endColumn: wordInfo.endColumn
+          endColumn: wordInfo.endColumn,
         };
         // Standard value suggestions - let user add quotes manually
-        const valueResult = await getValueSuggestions(parser.key, parser.value, valueRange);
+        const valueResult = await getValueSuggestions(
+          parser.key,
+          parser.value,
+          valueRange
+        );
         suggestions = valueResult.suggestions;
         incomplete = valueResult.incomplete;
       }
@@ -934,7 +1193,7 @@ const registerLogchefQLCompletionProvider = (): MonacoDisposable | null => {
       return { suggestions, incomplete };
     },
     // Control trigger characters more precisely
-    triggerCharacters: ["=", "!", ">", "<", "~", " ", ".", '"', "'", "("]
+    triggerCharacters: ["=", "!", ">", "<", "~", " ", ".", '"', "'", "("],
   });
 };
 
@@ -946,14 +1205,14 @@ const registerSQLCompletionProvider = (): MonacoDisposable | null => {
         startLineNumber: position.lineNumber,
         endLineNumber: position.lineNumber,
         startColumn: wordInfo.startColumn,
-        endColumn: wordInfo.endColumn
+        endColumn: wordInfo.endColumn,
       };
 
       const lineStartToPosition: MonacoRange = {
         startLineNumber: position.lineNumber,
         endLineNumber: position.lineNumber,
         startColumn: 1,
-        endColumn: position.column
+        endColumn: position.column,
       };
       const textBeforeCursor = model.getValueInRange(lineStartToPosition);
       let suggestions: MonacoCompletionItem[] = [];
@@ -965,19 +1224,19 @@ const registerSQLCompletionProvider = (): MonacoDisposable | null => {
           kind: monaco.languages.CompletionItemKind.Folder,
           insertText: props.tableName,
           range: range,
-          detail: 'Current log table'
+          detail: "Current log table",
         });
       }
 
       // Always add field name suggestions for SQL queries
       if (fieldNames.value.length > 0) {
         suggestions = suggestions.concat(
-          fieldNames.value.map(field => ({
+          fieldNames.value.map((field) => ({
             label: field,
             kind: monaco.languages.CompletionItemKind.Field,
             insertText: field,
             range: range,
-            detail: props.schema[field]?.type || 'unknown'
+            detail: props.schema[field]?.type || "unknown",
           }))
         );
       }
@@ -985,37 +1244,40 @@ const registerSQLCompletionProvider = (): MonacoDisposable | null => {
       const typedPrefix = wordInfo.word.toUpperCase();
       suggestions = suggestions.concat(
         getSuggestionsFromList({
-          items: SQL_KEYWORDS.filter(kw => kw.startsWith(typedPrefix))
-            .map(kw => ({ label: kw, insertText: kw + ' ' })),
+          items: SQL_KEYWORDS.filter((kw) => kw.startsWith(typedPrefix)).map(
+            (kw) => ({ label: kw, insertText: kw + " " })
+          ),
           kind: monaco.languages.CompletionItemKind.Keyword,
-          range: range
+          range: range,
         })
       );
 
       return { suggestions };
     },
     // Include more trigger characters for better responsiveness
-    triggerCharacters: [" ", "\n", ".", "(", ",", "=", ">", "<", "!"]
+    triggerCharacters: [" ", "\n", ".", "(", ",", "=", ">", "<", "!"],
   });
 };
 
-
 // --- Helper functions for completions (Keep your existing logic) ---
 const getSuggestionsFromList = (params: {
-  items: any[],
-  kind: monaco.languages.CompletionItemKind,
-  range: MonacoRange,
-  postfix?: string
+  items: any[];
+  kind: monaco.languages.CompletionItemKind;
+  range: MonacoRange;
+  postfix?: string;
 }): MonacoCompletionItem[] => {
   const suggestions: MonacoCompletionItem[] = [];
   const defaultPostfix = params.postfix ?? "";
   const range = params.range;
 
   // Validate range
-  if (!range || typeof range.startLineNumber !== 'number' ||
-    typeof range.startColumn !== 'number' ||
-    typeof range.endLineNumber !== 'number' ||
-    typeof range.endColumn !== 'number') {
+  if (
+    !range ||
+    typeof range.startLineNumber !== "number" ||
+    typeof range.startColumn !== "number" ||
+    typeof range.endLineNumber !== "number" ||
+    typeof range.endColumn !== "number"
+  ) {
     console.error("Invalid range provided to getSuggestionsFromList:", range);
     return [];
   }
@@ -1026,7 +1288,7 @@ const getSuggestionsFromList = (params: {
     let sortText: string;
     let documentation: string | undefined;
 
-    if (typeof item === 'string') {
+    if (typeof item === "string") {
       label = item;
       insertText = item;
       sortText = item.toLowerCase();
@@ -1045,45 +1307,49 @@ const getSuggestionsFromList = (params: {
       sortText,
       documentation,
       command: { id: "editor.action.triggerSuggest", title: "Trigger Suggest" },
-      detail: documentation ? ' ' : undefined,
-      insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet
+      detail: documentation ? " " : undefined,
+      insertTextRules:
+        monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
     });
   }
   return suggestions;
 };
 
 const getKeySuggestions = (range: MonacoRange): MonacoCompletionItem[] => {
-  return fieldNames.value.map(name => ({
+  return fieldNames.value.map((name) => ({
     label: name,
     kind: monaco.languages.CompletionItemKind.Field,
     insertText: name,
     range: range,
-    detail: props.schema[name]?.type || 'Unknown',
+    detail: props.schema[name]?.type || "Unknown",
     sortText: `0-${name}`,
-    command: { id: "editor.action.triggerSuggest", title: "Trigger Suggest" }
+    command: { id: "editor.action.triggerSuggest", title: "Trigger Suggest" },
   }));
 };
 
-const getBooleanOperatorsSuggestions = (range: MonacoRange): MonacoCompletionItem[] => {
+const getBooleanOperatorsSuggestions = (
+  range: MonacoRange
+): MonacoCompletionItem[] => {
   return [
     {
-      label: 'and',
+      label: "and",
       kind: monaco.languages.CompletionItemKind.Keyword,
-      insertText: 'and ',
+      insertText: "and ",
       range: range,
-      sortText: '1-and'
+      sortText: "1-and",
     },
     {
-      label: 'or',
+      label: "or",
       kind: monaco.languages.CompletionItemKind.Keyword,
-      insertText: 'or ',
+      insertText: "or ",
       range: range,
-      sortText: '1-or'
-    }
+      sortText: "1-or",
+    },
   ];
 };
 
-const getSchemaFieldValues = (field: string): string[] => { // Example implementation
+const getSchemaFieldValues = (field: string): string[] => {
+  // Example implementation
   const sampleValues: Record<string, string[]> = {
     level: ["info", "error", "warning", "debug"],
     status: ["200", "404", "500"],
@@ -1092,19 +1358,22 @@ const getSchemaFieldValues = (field: string): string[] => { // Example implement
   return sampleValues[field] || [];
 };
 
-const prepareSuggestionValues = (items: string[], quoteChar?: string): { label: string, insertText?: string }[] => {
+const prepareSuggestionValues = (
+  items: string[],
+  quoteChar?: string
+): { label: string; insertText?: string }[] => {
   // ... your existing implementation ...
   const needsQuotes = quoteChar !== undefined;
   const q = quoteChar || '"'; // Default to double quotes if needed but not specified
-  return items.map(item => {
+  return items.map((item) => {
     if (!needsQuotes && isNumeric(item)) {
       return { label: item }; // Numeric values don't need quotes unless context demands it
     } else {
       // Escape existing quotes within the value
-      const escapedValue = item.replace(new RegExp(`\\${q}`, 'g'), `\\${q}`);
+      const escapedValue = item.replace(new RegExp(`\\${q}`, "g"), `\\${q}`);
       return {
         label: item,
-        insertText: `${q}${escapedValue}${q}`
+        insertText: `${q}${escapedValue}${q}`,
       };
     }
   });
@@ -1115,65 +1384,71 @@ const getValueSuggestions = async (
   currentValue: string,
   range: MonacoRange,
   quoteChar?: string
-): Promise<{ suggestions: MonacoCompletionItem[], incomplete: boolean }> => {
+): Promise<{ suggestions: MonacoCompletionItem[]; incomplete: boolean }> => {
   const fieldValues = getSchemaFieldValues(key);
-  const filteredValues = fieldValues.filter(v =>
-    v.toLowerCase().includes(currentValue?.toLowerCase() || ''));
+  const filteredValues = fieldValues.filter((v) =>
+    v.toLowerCase().includes(currentValue?.toLowerCase() || "")
+  );
   const preparedItems = prepareSuggestionValues(filteredValues, quoteChar);
 
   const suggestions = getSuggestionsFromList({
     items: preparedItems,
     kind: monaco.languages.CompletionItemKind.Value,
     range: range,
-    postfix: ' '
+    postfix: " ",
   });
 
   return { suggestions, incomplete: false };
 };
 
-const getOperatorsSuggestions = (key: string, range: MonacoRange): MonacoCompletionItem[] => {
+const getOperatorsSuggestions = (
+  key: string,
+  range: MonacoRange
+): MonacoCompletionItem[] => {
   // Organize operators in the desired order: =, !=, ~, !~, >=, <=, >, <
   const operators = [
-    { label: '=', insertText: '=', sortText: '1=' },
-    { label: '!=', insertText: '!=', sortText: '2!=' },
-    { label: '~', insertText: '~', sortText: '3~' },
-    { label: '!~', insertText: '!~', sortText: '4!~' },
-    { label: '>=', insertText: '>=', sortText: '5>=' },
-    { label: '<=', insertText: '<=', sortText: '6<=' },
-    { label: '>', insertText: '>', sortText: '7>' },
-    { label: '<', insertText: '<', sortText: '8<' }
+    { label: "=", insertText: "=", sortText: "1=" },
+    { label: "!=", insertText: "!=", sortText: "2!=" },
+    { label: "~", insertText: "~", sortText: "3~" },
+    { label: "!~", insertText: "!~", sortText: "4!~" },
+    { label: ">=", insertText: ">=", sortText: "5>=" },
+    { label: "<=", insertText: "<=", sortText: "6<=" },
+    { label: ">", insertText: ">", sortText: "7>" },
+    { label: "<", insertText: "<", sortText: "8<" },
   ];
 
   // Filter operators based on field type if needed
-  const fieldType = props.schema[key]?.type?.toLowerCase() || '';
-  const filteredOperators = operators.filter(op => {
+  const fieldType = props.schema[key]?.type?.toLowerCase() || "";
+  const filteredOperators = operators.filter((op) => {
     // For numeric fields, only allow comparison operators
-    if (fieldType === 'number' || fieldType === 'integer') {
-      return ['=', '!=', '>', '<', '>=', '<='].includes(op.label);
+    if (fieldType === "number" || fieldType === "integer") {
+      return ["=", "!=", ">", "<", ">=", "<="].includes(op.label);
     }
     // For string fields, allow all operators
     return true;
   });
 
   return getSuggestionsFromList({
-    items: filteredOperators.map(op => ({
+    items: filteredOperators.map((op) => ({
       ...op,
-      insertText: op.insertText + ' ', // Just add a space after operator, no quote
-      documentation: `${key} ${op.label} value`
+      insertText: op.insertText + " ", // Just add a space after operator, no quote
+      documentation: `${key} ${op.label} value`,
     })),
     kind: monaco.languages.CompletionItemKind.Operator,
     range: range,
-    postfix: ''
+    postfix: "",
   });
 };
 
 // Add type assertion function
 const asEditorMode = (value: string | number): EditorMode => {
-  if (value === 'logchefql' || value === 'clickhouse-sql') {
+  if (value === "logchefql" || value === "clickhouse-sql") {
     return value;
   }
-  console.warn(`Received unexpected value for editor mode: ${value}. Defaulting to logchefql.`);
-  return 'logchefql';
+  console.warn(
+    `Received unexpected value for editor mode: ${value}. Defaulting to logchefql.`
+  );
+  return "logchefql";
 };
 
 // After the imports, add route and router
@@ -1211,21 +1486,21 @@ const handleNewQueryClick = () => {
 
     // Replace URL with new parameters in router, disabling any redirect
     // This is important to prevent the URL sync from adding back query_id
-    router.replace({ query: finalQuery })
+    router
+      .replace({ query: finalQuery })
       .then(() => {
         // Focus the editor and position cursor at the end after URL change is complete
         setTimeout(() => {
           focusEditor(true); // true = position cursor at end
         }, 50);
       })
-      .catch(err => {
+      .catch((err) => {
         console.error("Error updating URL:", err);
         // Still try to focus even if URL update fails
         focusEditor(true);
       });
   });
 };
-
 </script>
 
 <style scoped>
@@ -1245,7 +1520,7 @@ const handleNewQueryClick = () => {
 }
 
 .editor-wrapper:hover:not(.is-focused) {
-  border-color: hsl(var(--border-hover));
+  border-color: hsl(var(--border-hover, var(--border)));
 }
 
 /* Focus state - use box-shadow for a cleaner look that doesn't conflict */
@@ -1254,12 +1529,18 @@ const handleNewQueryClick = () => {
   box-shadow: 0 0 0 1px hsl(var(--primary) / 0.3);
 }
 
+.dark .editor-wrapper.is-focused {
+  border-color: hsl(var(--primary));
+  box-shadow: 0 0 0 1px hsl(var(--primary) / 0.4),
+    0 0 0 2px hsl(var(--primary) / 0.15);
+}
+
 /* Clean editor container styling */
 .editor-container {
   position: relative;
   width: 100%;
   height: 100%;
-  background-color: hsl(var(--card));
+  background-color: transparent; /* Make transparent to let Monaco background show through */
   padding-left: 16px;
   /* Add padding to container to position cursor */
 }
@@ -1274,7 +1555,8 @@ const handleNewQueryClick = () => {
   font-size: 13px;
   pointer-events: none;
   z-index: 1;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
 }
 
 /* Adjust placeholder position - keep it consistent in both modes */
@@ -1287,6 +1569,7 @@ const handleNewQueryClick = () => {
 :deep(.monaco-editor .overflow-guard) {
   border: none !important;
   outline: none !important;
+  background-color: transparent !important; /* Ensure transparency */
 }
 
 /* Style just the margin/gutter */
@@ -1342,5 +1625,9 @@ const handleNewQueryClick = () => {
 
 .sql-preview:hover {
   background-color: hsl(var(--muted) / 0.6);
+}
+
+.dark .sql-preview:hover {
+  background-color: #1c2536; /* Matches the bluish dark theme hover */
 }
 </style>

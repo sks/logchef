@@ -40,7 +40,8 @@ For comprehensive documentation, including setup guides, configuration options, 
 
 ## Screenshots
 
-<!-- Screenshots to be added -->
+![Logchef Light Explore View](screenshots/logchef_light_explore.png)
+![Logchef Dark Explore View](screenshots/logchef_dark_explore.png)
 
 ## License
 
