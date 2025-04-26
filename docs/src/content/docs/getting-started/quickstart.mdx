@@ -112,6 +112,9 @@ Before you can start querying logs, you need to set up a team, create a data sou
    Database: default
    Table: logs
    ```
+
+![Logchef Source Settings View](/screenshots/logchef_source.png)
+
 4. Test the connection and save
 
 ### 4. Assign the Source to Your Team
@@ -130,16 +133,19 @@ Now you're ready to explore your logs:
 3. Try some example queries:
 
 Basic search:
+
 ```
 namespace="syslog"
 ```
 
 Filter by severity:
+
 ```
 namespace="syslog" and severity_text!="INFO"
 ```
 
 Search for specific text in the log body:
+
 ```
 namespace="syslog" and body="error"
 ```

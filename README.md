@@ -8,7 +8,9 @@
   <a href="https://logchef.app"><strong>Read Documentation</strong></a>
 </p>
 
+![Logchef Light Explore View](screenshots/logchef_light_explore.png)
 ---
+
 
 Logchef is a lightweight, powerful log analytics platform designed for efficient log management and analysis. It operates as a single binary, utilizing ClickHouse for high-performance log storage and querying. Logchef provides an intuitive interface for exploring log data, making it suitable for development teams seeking a robust and scalable solution.
 
@@ -42,6 +44,10 @@ For comprehensive documentation, including setup guides, configuration options, 
 
 ![Logchef Light Explore View](screenshots/logchef_light_explore.png)
 ![Logchef Dark Explore View](screenshots/logchef_dark_explore.png)
+![Logchef Collections View](screenshots/logchef_collections.png)
+![Logchef Teams View](screenshots/logchef_teams.png)
+![Logchef Users View](screenshots/logchef_users.png)
+![Logchef Source Settings View](screenshots/logchef_source.png)
 
 ## License
 

@@ -1624,6 +1624,7 @@ onBeforeUnmount(() => {
 
               <!-- Histogram visualization -->
               <HistogramVisualization
+                :group-by="exploreStore.groupByField"
                 @zoom-time-range="onHistogramTimeRangeZoom"
                 @update:timeRange="onHistogramTimeRangeZoom"
               />

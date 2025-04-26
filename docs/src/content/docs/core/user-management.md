@@ -28,12 +28,16 @@ kubernetes-events     → Kubernetes cluster events
 
 Teams are the primary mechanism for managing access control in LogChef. They create logical groupings of users and determine which Sources they can access.
 
+![Logchef Teams View](/screenshots/logchef_teams.png)
+
 ### How Teams Work
 
 - Users are assigned to one or more Teams
 - Sources are associated with specific Teams
 - Users can only access Sources that belong to their Teams
 - Teams help maintain data isolation and security
+
+![Logchef Users View](/screenshots/logchef_users.png)
 
 ### Example Team Structure
 
