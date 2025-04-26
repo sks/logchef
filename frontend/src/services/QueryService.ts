@@ -62,7 +62,8 @@ export class QueryService {
       tsField,
       timeRange,
       limit,
-      logchefqlQuery = ''
+      logchefqlQuery = '',
+      timezone
     } = options;
 
     // --- Input Validation ---
@@ -93,8 +94,8 @@ export class QueryService {
     const formattedTsField = tsField.includes('`') ? tsField : `\`${tsField}\``;
     const orderByClause = `ORDER BY ${formattedTsField} DESC`;
 
-    // Create timezone-aware time condition
-    const timeCondition = createTimeRangeCondition(tsField, timeRange, true);
+    // Create timezone-aware time condition, passing the specific timezone if provided
+    const timeCondition = createTimeRangeCondition(tsField, timeRange, true, timezone);
     const limitClause = `LIMIT ${limit}`;
 
     // --- Translate LogchefQL ---
@@ -158,7 +159,7 @@ export class QueryService {
       field: tsField,
       startTime: formatDateForSQL(timeRange.start, false),
       endTime: formatDateForSQL(timeRange.end, false),
-      timezone: userTimezone,
+      timezone: timezone || userTimezone,
       isTimezoneAware: true
     };
 
@@ -182,7 +183,8 @@ export class QueryService {
       tsField,
       timeRange,
       limit,
-      orderBy
+      orderBy,
+      timezone
     } = options;
 
     // Basic validation
@@ -215,8 +217,8 @@ export class QueryService {
       // Format timestamp field
       const formattedTsField = tsField.includes('`') ? tsField : `\`${tsField}\``;
 
-      // Create timezone-aware time condition
-      const timeCondition = createTimeRangeCondition(tsField, timeRange, true);
+      // Create timezone-aware time condition, passing the specific timezone if provided
+      const timeCondition = createTimeRangeCondition(tsField, timeRange, true, timezone);
 
       // Set order by
       const orderByField = orderBy ?
@@ -237,12 +239,12 @@ export class QueryService {
       const userTimezone = getUserTimezone();
       const meta: NonNullable<QueryResult['meta']> = {
         fieldsUsed: [],
-        operations: ['sort', 'limit'] as ('sort' | 'limit')[],
+        operations: ['filter', 'sort', 'limit'] as ('filter' | 'sort' | 'limit')[], // Add filter as default op
         timeRangeInfo: {
           field: tsField,
           startTime: formatDateForSQL(timeRange.start, false),
           endTime: formatDateForSQL(timeRange.end, false),
-          timezone: userTimezone,
+          timezone: timezone || userTimezone, // Use provided or fallback
           isTimezoneAware: true
         }
       };
@@ -310,13 +312,14 @@ export class QueryService {
     tsField: string;
     timeRange: TimeRange;
     limit: number;
+    timezone?: string; // Add timezone here too
   }): QueryResult {
-    const { mode, query, tableName, tsField, timeRange, limit } = options;
+    const { mode, query, tableName, tsField, timeRange, limit, timezone } = options;
 
     if (mode === 'clickhouse-sql' || mode === 'sql') {
       if (!query?.trim()) {
         // Generate default SQL if query is empty
-        return this.generateDefaultSQL({ tableName, tsField, timeRange, limit });
+        return this.generateDefaultSQL({ tableName, tsField, timeRange, limit, timezone });
       }
 
       // Enhanced validation with detailed information
@@ -359,7 +362,8 @@ export class QueryService {
         tsField,
         timeRange,
         limit,
-        logchefqlQuery: query
+        logchefqlQuery: query,
+        timezone
       });
     }
   }

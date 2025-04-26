@@ -202,3 +202,40 @@ func (qb *QueryBuilder) ensureLimit(stmt *clickhouseparser.SelectQuery, limit in
 		Limit: numberLiteral,
 	}
 }
+
+// RemoveLimitClause parses the SQL and removes any LIMIT clause, then returns the modified query.
+func (qb *QueryBuilder) RemoveLimitClause(rawSQL string) (string, error) {
+	// Preprocess SQL to handle escaped single quotes ('') which the parser might misinterpret.
+	const placeholder = "___ESCAPED_QUOTE___"
+	processedSQL := strings.ReplaceAll(rawSQL, "''", placeholder)
+
+	parser := clickhouseparser.NewParser(processedSQL)
+	stmts, err := parser.ParseStmts()
+	if err != nil {
+		return "", fmt.Errorf("invalid SQL syntax: %w", err)
+	}
+
+	if len(stmts) == 0 {
+		return "", fmt.Errorf("no SQL statements found")
+	}
+	if len(stmts) > 1 {
+		return "", fmt.Errorf("multiple SQL statements are not supported")
+	}
+
+	stmt := stmts[0]
+	selectQuery, ok := stmt.(*clickhouseparser.SelectQuery)
+	if !ok {
+		return "", fmt.Errorf("only SELECT queries are supported")
+	}
+
+	// Remove the LIMIT clause
+	selectQuery.Limit = nil
+
+	// Convert the modified AST back to a SQL string
+	result := stmt.String()
+
+	// Restore escaped quotes
+	result = strings.ReplaceAll(result, placeholder, "''")
+
+	return result, nil
+}

@@ -810,23 +810,6 @@ const fetchHistogramData = async (forceGranularity?: string) => {
   try {
     isChartLoading.value = true;
 
-    // Use the same query preparation logic as the main log query
-    console.log("Histogram: Preparing query for execution");
-    const queryResult = prepareQueryForExecution();
-
-    if (!queryResult.success) {
-      console.error(
-        "Failed to prepare query for histogram:",
-        queryResult.error
-      );
-      histogramData.value = [];
-      return;
-    }
-
-    console.log(
-      "Histogram: Query prepared successfully, calling fetchHistogramData"
-    );
-
     // Get the selected timezone from the store
     const timezone =
       exploreStore.selectedTimezoneIdentifier ||
@@ -834,7 +817,7 @@ const fetchHistogramData = async (forceGranularity?: string) => {
         ? "UTC"
         : getLocalTimeZone());
 
-    // Call the histogram service with the properly prepared SQL
+    // Call the histogram service with the SQL from explore store
     const response = await HistogramService.fetchHistogramData({
       sourceId: currentSourceId.value,
       teamId: currentTeamId.value,
@@ -854,7 +837,7 @@ const fetchHistogramData = async (forceGranularity?: string) => {
             : new Date().toISOString()
           : new Date().toISOString(),
       },
-      query: queryResult.sql,
+      query: exploreStore.generatedDisplaySql || exploreStore.rawSql, // Use generatedDisplaySql or rawSql as fallback
       queryType: activeMode.value,
       granularity: forceGranularity,
       groupBy: props.groupBy,

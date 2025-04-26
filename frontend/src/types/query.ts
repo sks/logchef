@@ -36,6 +36,9 @@ export interface QueryOptions {
 
   // LogchefQL (when translating)
   logchefqlQuery?: string;
+
+  // Add optional timezone for query generation
+  timezone?: string;
 }
 
 /**

@@ -164,14 +164,25 @@ watch(
   { immediate: true, deep: true }
 );
 
+// Add the toggleTimezone function
+function toggleTimezone() {
+  timezonePreference.value =
+    timezonePreference.value === "local" ? "utc" : "local";
+}
+
 // Watch for timezone changes
 watch(
   () => timezonePreference.value,
   (newValue) => {
     localStorage.setItem("logchef_timezone", newValue);
-    // Emit the new timezone to parent components
+    // Emit the new timezone identifier to parent components
     emit("update:timezone", newValue === "local" ? getLocalTimeZone() : "UTC");
+    // We might need to re-apply the date/time inputs to reflect the new timezone
+    // Call handleApply() to re-parse and emit the updated ZonedDateTime values
+    // handleApply(); // Revisit this if needed after testing
   }
+  // We might want this to run immediately on component mount too
+  // { immediate: true } // Keep this commented for now, only trigger on actual change
 );
 
 const quickRanges = [
@@ -373,27 +384,6 @@ function emitUpdate() {
   }
 }
 
-// Toggle timezone preference between 'local' and 'UTC'
-function toggleTimezone() {
-  timezonePreference.value =
-    timezonePreference.value === "local" ? "utc" : "local";
-}
-
-const selectedRangeText = computed(() => {
-  if (!dateRange.value?.start || !dateRange.value?.end)
-    return "Select time range";
-
-  // Use the quick range in human-readable format if available
-  if (selectedQuickRange.value) {
-    // Use the relativeTimeToLabel function from utils/time to convert
-    // Example: "Last 15m" to "Last 15 minutes"
-    return relativeTimeToLabel(selectedQuickRange.value);
-  }
-
-  // Otherwise use the absolute time format
-  return formatDisplayText();
-});
-
 // Compute duration between dates
 const durationText = computed(() => {
   if (!dateRange.value?.start || !dateRange.value?.end) return "";
@@ -423,7 +413,21 @@ function openDatePicker() {
   showDatePicker.value = true;
 }
 
-// Expose methods to parent component
+// Re-introduce computed property for display text
+const selectedRangeText = computed(() => {
+  if (!dateRange.value?.start || !dateRange.value?.end)
+    return "Select time range";
+
+  // Use the quick range label if available
+  if (selectedQuickRange.value) {
+    return relativeTimeToLabel(selectedQuickRange.value);
+  }
+
+  // Otherwise use the absolute time format
+  return formatDisplayText();
+});
+
+// Expose methods and computed properties to parent component
 defineExpose({
   openDatePicker,
   selectedQuickRange,

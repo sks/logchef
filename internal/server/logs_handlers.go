@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/mr-karan/logchef/internal/clickhouse"
 	"github.com/mr-karan/logchef/internal/core"
@@ -24,7 +23,6 @@ import (
 // }
 
 // handleQueryLogs handles requests to query logs for a specific source.
-// It expects start/end timestamps, limit, and a raw SQL query in the request body.
 // Access is controlled by the requireSourceAccess middleware.
 func (s *Server) handleQueryLogs(c *fiber.Ctx) error {
 	sourceIDStr := c.Params("sourceID")
@@ -33,7 +31,7 @@ func (s *Server) handleQueryLogs(c *fiber.Ctx) error {
 		return SendErrorWithType(c, fiber.StatusBadRequest, "Invalid source ID format", models.ValidationErrorType)
 	}
 
-	var req models.LogQueryRequest
+	var req models.APIQueryRequest
 	if err := c.BodyParser(&req); err != nil {
 		return SendErrorWithType(c, fiber.StatusBadRequest, "Invalid request body", models.ValidationErrorType)
 	}
@@ -48,18 +46,8 @@ func (s *Server) handleQueryLogs(c *fiber.Ctx) error {
 		RawSQL: req.RawSQL,
 		Limit:  req.Limit,
 	}
-	if req.StartTimestamp > 0 {
-		params.StartTime = time.UnixMilli(req.StartTimestamp)
-	}
-	if req.EndTimestamp > 0 {
-		params.EndTime = time.UnixMilli(req.EndTimestamp)
-	}
-	// Use the provided timezone or default to UTC
-	if req.Timezone != "" {
-		params.Timezone = req.Timezone
-	} else {
-		params.Timezone = "UTC"
-	}
+	// StartTime, EndTime, and Timezone are no longer passed here;
+	// they are expected to be baked into the RawSQL by the frontend.
 
 	// Execute query via core function.
 	result, err := core.QueryLogs(c.Context(), s.sqlite, s.clickhouse, s.log, sourceID, params)
@@ -100,7 +88,6 @@ func (s *Server) handleGetSourceSchema(c *fiber.Ctx) error {
 }
 
 // handleGetHistogram generates histogram data (log counts over time intervals) for a specific source.
-// It accepts time range, window size, and optional group-by field in the request body.
 // Access is controlled by the requireSourceAccess middleware.
 func (s *Server) handleGetHistogram(c *fiber.Ctx) error {
 	sourceIDStr := c.Params("sourceID")
@@ -110,7 +97,7 @@ func (s *Server) handleGetHistogram(c *fiber.Ctx) error {
 	}
 
 	// Parse request body containing time range, window, groupBy and optional filter query
-	var req models.LogQueryRequest
+	var req models.APIHistogramRequest
 	if err := c.BodyParser(&req); err != nil {
 		return SendErrorWithType(c, fiber.StatusBadRequest, "Invalid request body", models.ValidationErrorType)
 	}
@@ -123,10 +110,8 @@ func (s *Server) handleGetHistogram(c *fiber.Ctx) error {
 
 	// Prepare parameters for the core histogram function.
 	params := core.HistogramParams{
-		StartTime: time.UnixMilli(req.StartTimestamp),
-		EndTime:   time.UnixMilli(req.EndTimestamp),
-		Window:    window,
-		Query:     req.RawSQL, // Pass potential filter query (WHERE clause).
+		Window: window,
+		Query:  req.RawSQL, // Pass raw SQL containing filters and time conditions
 	}
 
 	// Only add groupBy if it's not empty

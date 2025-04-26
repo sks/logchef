@@ -155,8 +155,12 @@ func (c *Client) executeQueryWithHooks(ctx context.Context, query string, fn fun
 
 // Query executes a SELECT query, processes the results, and applies query hooks.
 // It automatically handles DDL statements by calling execDDL.
-func (c *Client) Query(ctx context.Context, query string) (*models.QueryResult, error) {
-	start := time.Now() // Used for calculating total duration including hook overhead.
+// The params argument is now unused but kept for potential future structured query building.
+func (c *Client) Query(ctx context.Context, query string /* params LogQueryParams - Removed */) (*models.QueryResult, error) {
+	start := time.Now()          // Used for calculating total duration including hook overhead.
+	queryStartTime := time.Now() // Separate timer for actual DB execution
+	var queryDuration time.Duration
+
 	defer func() {
 		c.logger.Debug("query processing complete",
 			"duration_ms", time.Since(start).Milliseconds(),
@@ -171,25 +175,32 @@ func (c *Client) Query(ctx context.Context, query string) (*models.QueryResult, 
 
 	var rows driver.Rows
 	var resultData []map[string]interface{}
-	var columns []models.ColumnInfo
+	var columnsInfo []models.ColumnInfo
 
 	// Execute the core query logic within the hook wrapper.
 	err := c.executeQueryWithHooks(ctx, query, func(hookCtx context.Context) error {
 		var queryErr error
+		queryStartTime = time.Now() // Reset timer before execution
 		rows, queryErr = c.conn.Query(hookCtx, query)
+		// Defer rows.Close() here. We are abandoning getting accurate stats from the driver for now.
+		if rows != nil { // Only defer close if rows is not nil
+			defer func() {
+				// Closing might return an error, potentially overriding queryErr
+				// Consider how to handle this if needed, for now, we prioritize queryErr
+				// closeErr := rows.Close()
+				rows.Close()
+			}()
+		}
 		if queryErr != nil {
 			return queryErr // Return error to be logged by AfterQuery hook.
 		}
-		// Defer rows.Close() inside the function passed to executeQueryWithHooks
-		// to ensure it closes even if hook processing fails later.
-		defer rows.Close()
 
 		// Get column names and types.
 		columnTypes := rows.ColumnTypes()
-		columns = make([]models.ColumnInfo, len(columnTypes))
-		scanDest := make([]interface{}, len(columnTypes)) // Prepare scan destinations.
+		columnsInfo = make([]models.ColumnInfo, len(columnTypes)) // Use new name
+		scanDest := make([]interface{}, len(columnTypes))         // Prepare scan destinations.
 		for i, ct := range columnTypes {
-			columns[i] = models.ColumnInfo{
+			columnsInfo[i] = models.ColumnInfo{
 				Name: ct.Name(),
 				Type: ct.DatabaseTypeName(),
 			}
@@ -205,12 +216,13 @@ func (c *Client) Query(ctx context.Context, query string) (*models.QueryResult, 
 			}
 
 			rowMap := make(map[string]interface{})
-			for i, col := range columns {
+			for i, col := range columnsInfo { // Use new name
 				// Dereference the pointer to get the actual scanned value.
 				rowMap[col.Name] = reflect.ValueOf(scanDest[i]).Elem().Interface()
 			}
 			resultData = append(resultData, rowMap)
 		}
+		queryDuration = time.Since(queryStartTime) // Capture DB execution duration
 
 		// Check for errors during row iteration.
 		return rows.Err()
@@ -224,10 +236,11 @@ func (c *Client) Query(ctx context.Context, query string) (*models.QueryResult, 
 	// Construct the final result.
 	queryResult := &models.QueryResult{
 		Logs:    resultData,
-		Columns: columns,
+		Columns: columnsInfo,
 		Stats: models.QueryStats{
-			RowsRead:        len(resultData),
-			ExecutionTimeMs: float64(time.Since(start).Milliseconds()), // Total time including hooks.
+			RowsRead:        len(resultData), // Use length of returned data as approximation
+			BytesRead:       0,               // Cannot reliably get BytesRead currently
+			ExecutionTimeMs: float64(queryDuration.Milliseconds()),
 		},
 	}
 

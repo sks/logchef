@@ -50,12 +50,14 @@ export function formatDateForSQL(dateTime: DateValue | null | undefined, addQuot
  * @param tsField The timestamp field name
  * @param timeRange The time range object
  * @param includeTimezone Whether to include timezone information in the query
+ * @param timezone Optional specific timezone identifier to use (e.g., 'UTC', 'America/New_York')
  * @returns SQL condition string for the WHERE clause
  */
 export function createTimeRangeCondition(
   tsField: string,
   timeRange: TimeRange,
-  includeTimezone: boolean = true
+  includeTimezone: boolean = true,
+  timezone?: string
 ): string {
   if (!timeRange.start || !timeRange.end) {
     throw new Error('Invalid time range: start and end dates are required');
@@ -69,11 +71,11 @@ export function createTimeRangeCondition(
   const endFormatted = formatDateForSQL(timeRange.end);
 
   if (includeTimezone) {
-    // Get user's timezone
-    const timezone = formatTimezoneForSQL(getUserTimezone());
+    // Use provided timezone or get user's local timezone as fallback
+    const effectiveTimezone = formatTimezoneForSQL(timezone || getUserTimezone());
 
     // Create simplified timezone-aware condition with single toDateTime call
-    return `${formattedField} BETWEEN toDateTime(${startFormatted}, '${timezone}') AND toDateTime(${endFormatted}, '${timezone}')`;
+    return `${formattedField} BETWEEN toDateTime(${startFormatted}, '${effectiveTimezone}') AND toDateTime(${endFormatted}, '${effectiveTimezone}')`;
   } else {
     // Create standard condition without timezone
     return `${formattedField} BETWEEN toDateTime(${startFormatted}) AND toDateTime(${endFormatted})`;
