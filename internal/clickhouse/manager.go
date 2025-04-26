@@ -2,6 +2,7 @@ package clickhouse
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -24,9 +25,9 @@ type Manager struct {
 	clientsMux sync.RWMutex // Protects the clients map.
 	logger     *slog.Logger
 	health     map[models.SourceID]models.SourceHealth
-	healthMux  sync.RWMutex  // Protects the health map.
-	hooks      []QueryHook   // Hooks applied to all managed clients.
-	stopHealth chan struct{} // Channel to signal health check goroutine to stop.
+	healthMux  sync.RWMutex   // Protects the health map.
+	hooks      []QueryHook    // Hooks applied to all managed clients.
+	stopHealth chan struct{}  // Channel to signal health check goroutine to stop.
 	healthWG   sync.WaitGroup // WaitGroup to wait for health check goroutine to exit.
 }
 
@@ -112,12 +113,12 @@ func (m *Manager) checkAllSourcesHealth() {
 func (m *Manager) updateHealthStatus(sourceID models.SourceID, isHealthy bool, errorMsg string) {
 	m.healthMux.Lock()
 	defer m.healthMux.Unlock()
-	
+
 	status := models.HealthStatusUnhealthy
 	if isHealthy {
 		status = models.HealthStatusHealthy
 	}
-	
+
 	m.health[sourceID] = models.SourceHealth{
 		SourceID:    sourceID,
 		Status:      status,
@@ -132,11 +133,11 @@ func (m *Manager) updateHealthStatus(sourceID models.SourceID, isHealthy bool, e
 func (m *Manager) checkSource(sourceID models.SourceID) {
 	start := time.Now()
 	defer func() {
-		m.logger.Debug("health check completed", 
-			"source_id", sourceID, 
+		m.logger.Debug("health check completed",
+			"source_id", sourceID,
 			"duration_ms", time.Since(start).Milliseconds())
 	}()
-	
+
 	// Get the client connection. GetConnection handles locking internally.
 	client, err := m.GetConnection(sourceID)
 
@@ -146,62 +147,45 @@ func (m *Manager) checkSource(sourceID models.SourceID) {
 		return
 	}
 
-	// Create parent context with timeout
-	rootCtx, rootCancel := context.WithTimeout(context.Background(), HealthCheckTimeout*2) // Parent timeout
+	// Create parent context with overall timeout for the check operation
+	rootCtx, rootCancel := context.WithTimeout(context.Background(), HealthCheckTimeout*2) // e.g., 2 seconds total
 	defer rootCancel()
-	
-	// Perform the actual health check (Ping) with its own timeout
-	pingCtx, pingCancel := context.WithTimeout(rootCtx, HealthCheckTimeout)
-	pingDone := make(chan error, 1)
-	
-	// Run ping in goroutine to respect timeout precisely
-	go func() {
-		pingDone <- client.Ping(pingCtx)
-	}()
-	
-	// Wait for ping to complete or timeout
-	var pingErr error
-	select {
-	case pingErr = <-pingDone:
-		// Ping completed (either success or error)
-		pingCancel() // Cancel the context as we already have the result
-	case <-pingCtx.Done():
-		// Timeout or parent context cancellation
-		pingCancel()
-		pingErr = pingCtx.Err()
-		m.logger.Warn("ping timed out during health check", 
-			"source_id", sourceID,
-			"timeout", HealthCheckTimeout)
-	}
-	
+
+	// 1. Perform the actual health check (Ping) with its own timeout.
+	pingCtx, pingCancel := context.WithTimeout(rootCtx, HealthCheckTimeout) // e.g., 1 second for ping
+	pingErr := client.Ping(pingCtx, "", "")
+	pingCancel() // Cancel the ping context immediately after the call.
+
 	// Handle the ping result
 	if pingErr != nil {
-		m.logger.Warn("ping failed during health check, attempting reconnect", 
-			"source_id", sourceID, 
-			"error", pingErr)
-		
-		// Attempt to reconnect with timeout
-		reconnectCtx, reconnectCancel := context.WithTimeout(rootCtx, HealthCheckTimeout)
-		reconnectDone := make(chan error, 1)
-		
-		go func() {
-			reconnectDone <- client.Reconnect(reconnectCtx)
-		}()
-		
-		// Wait for reconnect to complete or timeout
-		var reconnectErr error
-		select {
-		case reconnectErr = <-reconnectDone:
-			reconnectCancel()
-		case <-reconnectCtx.Done():
-			reconnectCancel()
-			reconnectErr = fmt.Errorf("reconnection timed out after %v", HealthCheckTimeout)
+		// Check if the error was specifically a timeout
+		if errors.Is(pingErr, context.DeadlineExceeded) {
+			m.logger.Warn("ping timed out during health check",
+				"source_id", sourceID,
+				"timeout", HealthCheckTimeout)
+		} else {
+			m.logger.Warn("ping failed during health check, attempting reconnect",
+				"source_id", sourceID,
+				"error", pingErr)
 		}
-		
+
+		// 2. Attempt to reconnect if ping failed, using remaining time from rootCtx.
+		reconnectCtx, reconnectCancel := context.WithTimeout(rootCtx, HealthCheckTimeout) // Give reconnect its own timeout budget
+		reconnectErr := client.Reconnect(reconnectCtx)
+		reconnectCancel() // Cancel reconnect context.
+
 		if reconnectErr != nil {
-			m.logger.Error("reconnection attempt failed", 
-				"source_id", sourceID, 
-				"error", reconnectErr)
+			// Check if reconnect failed due to timeout
+			if errors.Is(reconnectErr, context.DeadlineExceeded) {
+				m.logger.Error("reconnection attempt timed out",
+					"source_id", sourceID,
+					"timeout", HealthCheckTimeout)
+				reconnectErr = fmt.Errorf("reconnection timed out after %v: %w", HealthCheckTimeout, reconnectErr)
+			} else {
+				m.logger.Error("reconnection attempt failed",
+					"source_id", sourceID,
+					"error", reconnectErr)
+			}
 			m.updateHealthStatus(sourceID, false, fmt.Sprintf("reconnection failed: %v", reconnectErr))
 		} else {
 			// Reconnection successful
@@ -209,7 +193,7 @@ func (m *Manager) checkSource(sourceID models.SourceID) {
 			m.updateHealthStatus(sourceID, true, "")
 		}
 	} else {
-		// Connection is healthy
+		// Connection is healthy after ping
 		m.updateHealthStatus(sourceID, true, "")
 	}
 }
@@ -266,11 +250,11 @@ func (m *Manager) AddSource(source *models.Source) error {
 		Username: source.Connection.Username,
 		Password: source.Connection.Password,
 	}, m.logger)
-	
+
 	if err != nil {
 		// If client creation fails completely (not just connection), log and return error
-		m.logger.Error("failed to create client instance", 
-			"source_id", source.ID, 
+		m.logger.Error("failed to create client instance",
+			"source_id", source.ID,
 			"error", err)
 		m.health[source.ID] = models.SourceHealth{
 			SourceID:    source.ID,
@@ -365,10 +349,10 @@ func (m *Manager) GetHealth(sourceID models.SourceID) models.SourceHealth {
 // It also stops the background health checker and waits for it to complete.
 func (m *Manager) Close() error {
 	m.logger.Info("closing clickhouse manager")
-	
+
 	// Stop health checks first and wait for the goroutine to exit
 	m.StopBackgroundHealthChecks()
-	
+
 	// Wait for the health check goroutine to fully terminate
 	waitChan := make(chan struct{})
 	go func() {
@@ -376,7 +360,7 @@ func (m *Manager) Close() error {
 		m.healthWG.Wait()
 		close(waitChan)
 	}()
-	
+
 	// Use a timeout to avoid hanging forever if something goes wrong
 	select {
 	case <-waitChan:
@@ -384,7 +368,7 @@ func (m *Manager) Close() error {
 	case <-time.After(5 * time.Second):
 		m.logger.Warn("timed out waiting for health check goroutine to exit, continuing with shutdown")
 	}
-	
+
 	m.clientsMux.Lock()
 	defer m.clientsMux.Unlock()
 
@@ -392,33 +376,33 @@ func (m *Manager) Close() error {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var lastErr error
-	
+
 	// Get all the source IDs first
 	clientIDs := make([]models.SourceID, 0, len(m.clients))
 	for id := range m.clients {
 		clientIDs = append(clientIDs, id)
 	}
-	
+
 	for _, id := range clientIDs {
 		client := m.clients[id]
 		wg.Add(1)
-		
+
 		// Close each client in a separate goroutine to allow parallel shutdown
 		go func(sourceID models.SourceID, cl *Client) {
 			defer wg.Done()
-			
+
 			// Use a timeout context for each client close operation
 			closeCtx, closeCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer closeCancel()
-			
+
 			// Create a done channel to signal completion
 			done := make(chan error, 1)
-			
+
 			go func() {
 				// Each client.Close() already has its own timeout
 				done <- cl.Close()
 			}()
-			
+
 			// Wait for client to close or timeout
 			select {
 			case err := <-done:
@@ -435,14 +419,14 @@ func (m *Manager) Close() error {
 			}
 		}(id, client)
 	}
-	
+
 	// Wait for all clients to be closed or timeout
 	closeDone := make(chan struct{})
 	go func() {
 		wg.Wait()
 		close(closeDone)
 	}()
-	
+
 	// Add an overall timeout for client closing phase
 	select {
 	case <-closeDone:
@@ -482,14 +466,17 @@ func (m *Manager) CreateTemporaryClient(source *models.Source) (*Client, error) 
 		m.logger.Error("failed to create temporary client", "error", err)
 		return nil, fmt.Errorf("error creating temporary client: %w", err)
 	}
-	
-	// Explicitly verify the connection is active by pinging the server.
+
+	// Perform a basic ping to verify the connection without checking table existence.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := client.Ping(ctx); err != nil {
+
+	// Ping with empty database and table to only check basic connectivity.
+	if err := client.Ping(ctx, "", ""); err != nil {
 		// Attempt to close the potentially problematic connection before returning error.
-		_ = client.Close()
-		return nil, fmt.Errorf("pinging clickhouse failed: %w", err)
+		_ = client.Close() // Ignore error during cleanup
+		// Wrap the error with context indicating basic connection failure.
+		return nil, fmt.Errorf("basic connection ping failed: %w", err)
 	}
 
 	return client, nil

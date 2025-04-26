@@ -38,39 +38,13 @@ export function useSourceTeamManagement() {
   )
 
   // Available fields for sidebar/autocompletion
-  const availableFields = computed((): FieldInfo[] => {
-    const columns = sourceDetails.value?.columns || exploreStore.columns || []
-    const fields: FieldInfo[] = columns.map(col => ({
-      name: col.name,
-      type: col.type
-    }))
+  const availableFields = computed(() => {
+    // Debugging: Log the source details being used
+    console.log('useSourceTeamManagement: Calculating availableFields from:', sourceDetails.value);
 
-    // Add metadata fields if not present
-    const tsFieldName = sourceDetails.value?._meta_ts_field || 'timestamp'
-    const severityFieldName = sourceDetails.value?._meta_severity_field || 'severity_text'
-
-    let tsFound = false
-    let severityFound = false
-
-    fields.forEach(f => {
-      if (f.name === tsFieldName) {
-        f.isTimestamp = true
-        tsFound = true
-      }
-      if (f.name === severityFieldName) {
-        f.isSeverity = true
-        severityFound = true
-      }
-    })
-
-    if (!tsFound) {
-      fields.push({ name: tsFieldName, type: 'timestamp', isTimestamp: true })
-    }
-    if (!severityFound) {
-      fields.push({ name: severityFieldName, type: 'string', isSeverity: true })
-    }
-
-    return fields
+    if (!sourceDetails.value?.columns) return [];
+    // Return columns sorted alphabetically by name
+    return [...sourceDetails.value.columns].sort((a, b) => a.name.localeCompare(b.name));
   })
 
   // Team change handler
@@ -98,8 +72,8 @@ export function useSourceTeamManagement() {
 
       // Only after we have sources loaded, set the first source as active
       if (sourcesResult.success && sourcesResult.data?.length) {
-        // Always set the first available source when changing teams
-        const firstSourceId = sourcesResult.data[0].id
+        // Assert the type here since we know data is non-empty
+        const firstSourceId = (sourcesResult.data as { id: number }[])[0].id
         exploreStore.setSource(firstSourceId)
         
         // Load source details AFTER setting source ID
