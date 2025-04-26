@@ -27,5 +27,5 @@ skip_unknown_fields = true
 # [sinks.console]
 # type = "console"
 # # Switch input to the remapped logs to see the result
-# inputs = ["remap_http"]
+# inputs = ["generate_http"]
 # encoding.codec = "json"
