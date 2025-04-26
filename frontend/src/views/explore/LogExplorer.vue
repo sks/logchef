@@ -578,15 +578,23 @@ watch(
         await nextTick();
       }
 
+      // Enhanced check: Wait for source details to be fully loaded before allowing query execution
+      const isSourceReady =
+        currentSourceId.value &&
+        sourceDetails.value &&
+        sourceDetails.value.id === currentSourceId.value &&
+        !!sourcesStore.getCurrentSourceTableName;
+
       // Execute Initial Query (if applicable)
-      if (canExecuteQuery.value) {
+      if (canExecuteQuery.value && isSourceReady) {
         console.log(
           "LogExplorer: Conditions met, executing initial query synchronously."
         );
         await handleQueryExecution("initial-load");
       } else {
         console.log(
-          "LogExplorer: Conditions not met for initial query execution (canExecuteQuery is false)."
+          "LogExplorer: Conditions not met for initial query execution (canExecuteQuery is false or source not ready).",
+          { canExecute: canExecuteQuery.value, sourceReady: isSourceReady }
         );
         // If we loaded a saved query but can't execute, maybe sync URL state?
         if (queryId) {

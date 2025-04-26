@@ -203,6 +203,14 @@ export const useExploreStore = defineStore("explore", () => {
 
   // Actions
   function setSource(sourceId: number) {
+    // Clear the generated SQL immediately to prevent using previous source's SQL
+    state.data.value.generatedDisplaySql = null;
+    // Clear the logs and result data as well to avoid showing old data
+    state.data.value.logs = [];
+    state.data.value.columns = [];
+    state.data.value.queryStats = DEFAULT_QUERY_STATS;
+    
+    // Set the new source ID
     state.data.value.sourceId = sourceId;
   }
 
@@ -381,12 +389,35 @@ export const useExploreStore = defineStore("explore", () => {
         return state.handleError({ status: "error", message: "No team selected", error_type: "ValidationError" }, operationKey);
       }
 
+      // Get source details to check they're fully loaded
+      const sourcesStore = useSourcesStore();
+      const sourceDetails = sourcesStore.currentSourceDetails;
+      
+      // Validate that we have the current source details loaded
+      if (!sourceDetails || sourceDetails.id !== state.data.value.sourceId) {
+        console.warn(`Source details not loaded or mismatch: have ID ${sourceDetails?.id}, need ID ${state.data.value.sourceId}`);
+        return state.handleError({
+          status: "error", 
+          message: "Source details not fully loaded. Please try again.", 
+          error_type: "ValidationError"
+        }, operationKey);
+      }
+
+      // Verify we have a valid table name for the current source
+      const tableName = sourcesStore.getCurrentSourceTableName;
+      if (!tableName) {
+        return state.handleError({
+          status: "error",
+          message: "Cannot determine table name for current source.",
+          error_type: "ValidationError"
+        }, operationKey);
+      }
+
       // Use the reactively generated SQL if available, otherwise generate on the fly (fallback)
       let sqlToExecute = state.data.value.generatedDisplaySql;
 
       if (!sqlToExecute || sqlToExecute.startsWith('-- Error') || sqlToExecute.startsWith('-- Exception')) {
         console.warn("executeQuery: generatedDisplaySql not usable, regenerating SQL on the fly.");
-        const sourcesStore = useSourcesStore();
         if (!state.data.value.timeRange) {
           return state.handleError({
             status: "error",
@@ -395,8 +426,8 @@ export const useExploreStore = defineStore("explore", () => {
           }, operationKey);
         }
         const generationOptions = {
-            tableName: sourcesStore.getCurrentSourceTableName || '',
-            tsField: sourcesStore.currentSourceDetails?._meta_ts_field || 'timestamp',
+            tableName: tableName,
+            tsField: sourceDetails?._meta_ts_field || 'timestamp',
             timeRange: state.data.value.timeRange,
             limit: state.data.value.limit,
             timezone: getTimezoneIdentifier(),
@@ -429,6 +460,19 @@ export const useExploreStore = defineStore("explore", () => {
             message: "Cannot execute an empty query.",
             error_type: "ValidationError"
          }, operationKey);
+      }
+
+      // Validate the SQL references the correct table name before execution
+      if (tableName && !sqlToExecute.includes(tableName)) {
+        const tableFromSql = extractTableNameFromSql(sqlToExecute);
+        if (tableFromSql && tableFromSql !== tableName) {
+          console.error(`SQL references table ${tableFromSql} but current source uses ${tableName}`);
+          return state.handleError({
+            status: "error",
+            message: `Query references incorrect table (${tableFromSql}). Current source uses ${tableName}.`,
+            error_type: "ValidationError"
+          }, operationKey);
+        }
       }
 
       // Store current state before execution
@@ -512,6 +556,22 @@ export const useExploreStore = defineStore("explore", () => {
           return { success: false, error: response.error };
       }
     });
+  }
+
+  // Helper function to extract table name from SQL
+  function extractTableNameFromSql(sql: string): string | null {
+    try {
+      // Simple regex to find table name after FROM
+      const fromMatch = /\bFROM\s+(?:`?([^`\s()]+\.[^`\s()]+)`?|\(?`?([^`\s()]+)`?\s+AS\s+[^`\s()]+\)?)/i.exec(sql);
+      if (fromMatch) {
+        // Return the first captured group that isn't undefined
+        return fromMatch[1] || fromMatch[2] || null;
+      }
+      return null;
+    } catch (error) {
+      console.error("Error extracting table name from SQL:", error);
+      return null;
+    }
   }
 
   // Get log context
