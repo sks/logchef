@@ -32,7 +32,7 @@ scopes = ["openid", "email", "profile"]
 # Authentication configuration
 [auth]
 # Email addresses of admin users
-admin_emails = ["admin@example.com"]
+admin_emails = ["admin@logchef.internal"]
 # Duration of user sessions
 session_duration = "8h"
 # Maximum number of concurrent sessions per user

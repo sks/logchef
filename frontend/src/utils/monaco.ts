@@ -141,7 +141,19 @@ export function initMonacoSetup() {
   monaco.editor.defineTheme("logchef-dark", {
     base: "vs-dark",
     inherit: true,
-    colors: {}, // Use default VS Dark colors
+    colors: {
+      // Match the bluish-dark theme
+      'editor.background': '#0c0e14', // Matches --card/--background (222.2 84% 4.9%)
+      'editor.foreground': '#f0f6fc', // Matches --foreground (210 40% 98%)
+      'editorCursor.foreground': '#78aeff', // Accent color based on --primary
+      'editor.selectionBackground': '#1c2536', // Slightly lighter than background
+      'editor.lineHighlightBackground': '#111522', // Subtle highlight
+      'editorLineNumber.foreground': '#495167', // Muted color for line numbers
+      'editorIndentGuide.background': '#1d2536', // Subtle indent guides
+      'editorWidget.background': '#111522', // Dropdown backgrounds
+      'dropdown.background': '#111522',
+      'list.hoverBackground': '#1c2536',
+    },
     rules: [
       { token: "logchefqlKey", foreground: "9cdcfe" },
       { token: "logchefqlOperator", foreground: "d4d4d4" },

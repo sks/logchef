@@ -1,47 +1,54 @@
 <p align="center">
-  <h1 align="center">🔍 Logchef</h1>
+  <h1 align="center">Logchef</h1>
   <p align="center">A modern, high-performance log analytics platform</p>
 </p>
 
 <p align="center">
-  <a href="https://demo.logchef.app"><strong>Try Demo</strong></a> · 
-  <a href="https://logchef.app"><strong>Read Docs</strong></a>
+  <a href="https://demo.logchef.app"><strong>Try Demo</strong></a> ·
+  <a href="https://logchef.app"><strong>Read Documentation</strong></a>
 </p>
 
+![Logchef Light Explore View](screenshots/logchef_light_explore.png)
 ---
 
-Logchef is a lightweight, powerful log analytics platform that runs as a single binary. It leverages Clickhouse for blazing-fast log storage and provides an intuitive interface for querying and visualizing logs, making it perfect for development teams of all sizes.
 
-## ✨ Features
+Logchef is a lightweight, powerful log analytics platform designed for efficient log management and analysis. It operates as a single binary, utilizing ClickHouse for high-performance log storage and querying. Logchef provides an intuitive interface for exploring log data, making it suitable for development teams seeking a robust and scalable solution.
 
-- **Schema-Agnostic Log Exploration**: Query any Clickhouse table regardless of schema
-- **Flexible Query Options**: Simple search syntax or full Clickhouse SQL
-- **High Performance**: Fast queries on large datasets with minimal resource usage
-- **Team-Based Access Control**: Secure multi-tenant log access with fine-grained permissions
-- **Single Binary Deployment**: Easy installation and management
+## Features
 
-## 🚀 Quick Start
+- **Schema-Agnostic Log Exploration**: Query any ClickHouse table without predefined schema constraints.
+- **Flexible Query Options**: Supports both simple search syntax and full ClickHouse SQL for advanced analysis.
+- **High Performance**: Engineered for fast query execution on large datasets with minimal resource consumption.
+- **Team-Based Access Control**: Provides secure, multi-tenant log access with configurable, fine-grained permissions.
+- **Single Binary Deployment**: Simplifies installation, deployment, and management.
+
+## Quick Start
 
 ### Docker
 
 ```shell
-# Download the compose file
+# Download the Docker Compose file
 curl -LO https://github.com/mr-karan/logchef/raw/master/deployment/docker/docker-compose.yml
 
-# Run the services
+# Start the services
 docker compose up -d
 ```
 
-Visit `http://localhost:8125` to start exploring your logs.
+Access the Logchef interface at `http://localhost:8125`.
 
-## 📚 Documentation
+## Documentation
 
-For comprehensive documentation, visit [logchef.app](https://logchef.app).
+For comprehensive documentation, including setup guides, configuration options, and API references, please visit [logchef.app](https://logchef.app).
 
-## 📊 Screenshots
+## Screenshots
 
-<!-- Screenshots to be added -->
+![Logchef Light Explore View](screenshots/logchef_light_explore.png)
+![Logchef Dark Explore View](screenshots/logchef_dark_explore.png)
+![Logchef Collections View](screenshots/logchef_collections.png)
+![Logchef Teams View](screenshots/logchef_teams.png)
+![Logchef Users View](screenshots/logchef_users.png)
+![Logchef Source Settings View](screenshots/logchef_source.png)
 
-## 📜 License
+## License
 
-Logchef is licensed under the AGPLv3 License.
+Logchef is distributed under the terms of the AGPLv3 License.

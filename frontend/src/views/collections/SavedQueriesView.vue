@@ -1,17 +1,25 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue';
-import { useRouter } from 'vue-router';
-import { ChevronDown, Eye, Pencil, Trash2, Loader2, Plus, Search } from 'lucide-vue-next';
-import { formatDate } from '@/utils/format';
+import { ref, onMounted, computed, watch } from "vue";
+import { useRouter } from "vue-router";
+import {
+  ChevronDown,
+  Eye,
+  Pencil,
+  Trash2,
+  Loader2,
+  Plus,
+  Search,
+} from "lucide-vue-next";
+import { formatDate } from "@/utils/format";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { Button } from '@/components/ui/button';
-import { useToast } from '@/components/ui/toast';
-import { Skeleton } from '@/components/ui/skeleton';
+} from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -19,19 +27,25 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Input } from '@/components/ui/input';
-import { TOAST_DURATION } from '@/lib/constants';
-import SaveQueryModal from '@/components/collections/SaveQueryModal.vue';
-import { getErrorMessage } from '@/api/types';
-import { useSourcesStore } from '@/stores/sources';
-import { formatSourceName } from '@/utils/format';
-import type { SavedTeamQuery } from '@/api/savedQueries';
-import { useTeamsStore } from '@/stores/teams';
-import { Badge } from '@/components/ui/badge';
-import { useSavedQueries } from '@/composables/useSavedQueries';
-import type { SaveQueryFormData } from '@/views/explore/types';
+} from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { TOAST_DURATION } from "@/lib/constants";
+import SaveQueryModal from "@/components/collections/SaveQueryModal.vue";
+import { getErrorMessage } from "@/api/types";
+import { useSourcesStore } from "@/stores/sources";
+import { formatSourceName } from "@/utils/format";
+import type { SavedTeamQuery } from "@/api/savedQueries";
+import { useTeamsStore } from "@/stores/teams";
+import { Badge } from "@/components/ui/badge";
+import { useSavedQueries } from "@/composables/useSavedQueries";
+import type { SaveQueryFormData } from "@/views/explore/types";
 
 // Initialize router and services with better error handling
 const router = useRouter();
@@ -50,20 +64,20 @@ try {
   sourcesStore = {
     loadTeamSources: async () => ({ success: false }),
     teamSources: [],
-    isLoading: false
+    isLoading: false,
   } as any; // Fallback to any for error case
 
   teamsStore = {
-    loadTeams: async () => { },
-    setCurrentTeam: () => { },
+    loadTeams: async () => {},
+    setCurrentTeam: () => {},
     currentTeamId: null,
     currentTeam: null,
     teams: [],
-    resetAdminTeams: () => { }
+    resetAdminTeams: () => {},
   } as any; // Fallback to any for error case
 }
 
-// Get saved queries composable
+// Get saved queries composable ONCE at the top level
 const {
   showSaveQueryModal,
   editingQuery,
@@ -79,11 +93,12 @@ const {
   deleteQuery,
   createNewQuery,
   clearSearch,
-  loadSourceQueries
+  loadSourceQueries,
+  handleSaveQuery: handleSaveQueryFromComposable, // Rename the imported function
 } = useSavedQueries();
 
 // Local UI state
-const selectedSourceId = ref<string>('');
+const selectedSourceId = ref<string>("");
 const isChangingTeam = ref(false);
 const isChangingSource = ref(false);
 const urlError = ref<string | null>(null);
@@ -95,29 +110,34 @@ const showLoadingState = computed(() => {
 });
 
 const showEmptyState = computed(() => {
-  return !showLoadingState.value && (!sourcesStore.teamSources || sourcesStore.teamSources.length === 0);
+  return (
+    !showLoadingState.value &&
+    (!sourcesStore.teamSources || sourcesStore.teamSources.length === 0)
+  );
 });
 
 // Selected team name with better null handling
 const selectedTeamName = computed(() => {
   if (!teamsStore || !teamsStore.currentTeam) {
-    return 'Select a team';
+    return "Select a team";
   }
-  return teamsStore.currentTeam.name || 'Select a team';
+  return teamsStore.currentTeam.name || "Select a team";
 });
 
 // Selected source name
 const selectedSourceName = computed(() => {
-  if (!selectedSourceId.value) return 'Select a source';
-  const source = sourcesStore.teamSources?.find(s => s.id === parseInt(selectedSourceId.value));
-  return source ? formatSourceName(source) : 'Select a source';
+  if (!selectedSourceId.value) return "Select a source";
+  const source = sourcesStore.teamSources?.find(
+    (s) => s.id === parseInt(selectedSourceId.value)
+  );
+  return source ? formatSourceName(source) : "Select a source";
 });
 
 // Add this computed property near the other computed properties
 const emptyStateMessage = computed(() =>
   searchQuery.value
-    ? 'No queries match your search.'
-    : 'Create a query in the Explorer and save it to your collection.'
+    ? "No queries match your search."
+    : "Create a query in the Explorer and save it to your collection."
 );
 
 // Load sources and queries on mount
@@ -154,7 +174,12 @@ onMounted(async () => {
       // Check if source ID is specified in the URL query
       const sourceIdFromUrl = router.currentRoute.value.query.source;
 
-      if (sourceIdFromUrl && sourcesStore.teamSources.some(s => s.id === parseInt(sourceIdFromUrl as string))) {
+      if (
+        sourceIdFromUrl &&
+        sourcesStore.teamSources.some(
+          (s) => s.id === parseInt(sourceIdFromUrl as string)
+        )
+      ) {
         selectedSourceId.value = sourceIdFromUrl as string;
       } else {
         selectedSourceId.value = String(sourcesStore.teamSources[0].id);
@@ -165,11 +190,12 @@ onMounted(async () => {
     }
   } catch (error) {
     console.error("Error during SavedQueriesView mount:", error);
-    urlError.value = "Error initializing the saved queries view. Please try refreshing the page.";
+    urlError.value =
+      "Error initializing the saved queries view. Please try refreshing the page.";
     toast({
-      title: 'Error',
+      title: "Error",
       description: getErrorMessage(error),
-      variant: 'destructive',
+      variant: "destructive",
       duration: TOAST_DURATION.ERROR,
     });
   }
@@ -179,7 +205,8 @@ onMounted(async () => {
 watch(
   [
     () => selectedSourceId.value,
-    () => teamsStore && teamsStore.currentTeamId ? teamsStore.currentTeamId : null
+    () =>
+      teamsStore && teamsStore.currentTeamId ? teamsStore.currentTeamId : null,
   ],
   async ([newSourceId, newTeamId], [oldSourceId, oldTeamId]) => {
     // Skip fetching if either:
@@ -198,7 +225,9 @@ watch(
     if (newSourceId && newTeamId) {
       // Verify source exists in current team before fetching
       const sourceId = parseInt(newSourceId);
-      const sourceExists = sourcesStore.teamSources.some(source => source.id === sourceId);
+      const sourceExists = sourcesStore.teamSources.some(
+        (source) => source.id === sourceId
+      );
 
       if (sourceExists) {
         await fetchQueries();
@@ -223,17 +252,21 @@ async function handleTeamChange(teamId: string) {
 
     // Update URL to reflect the team change - use push instead of replace for proper history
     router.push({
-      path: '/logs/saved',
-      query: { team: teamId }
+      path: "/logs/saved",
+      query: { team: teamId },
     });
 
     // Load sources for the selected team
     const sourcesResult = await sourcesStore.loadTeamSources(currentTeamId);
 
     // Handle case where team has no sources
-    if (!sourcesResult.success || !sourcesResult.data || sourcesResult.data.length === 0) {
+    if (
+      !sourcesResult.success ||
+      !sourcesResult.data ||
+      sourcesResult.data.length === 0
+    ) {
       // Clear source selection when team has no sources
-      selectedSourceId.value = '';
+      selectedSourceId.value = "";
       queries.value = [];
       return;
     }
@@ -245,28 +278,27 @@ async function handleTeamChange(teamId: string) {
       // Update URL with the new source - use currentTeamId for safety
       // Use push instead of replace for proper history
       router.push({
-        path: '/logs/saved',
+        path: "/logs/saved",
         query: {
           team: teamId,
-          source: selectedSourceId.value
-        }
+          source: selectedSourceId.value,
+        },
       });
 
       // Only fetch queries after we've properly set the selectedSourceId
       await fetchQueries();
     } else {
       // No sources in this team
-      selectedSourceId.value = '';
+      selectedSourceId.value = "";
       queries.value = [];
     }
-
   } catch (error) {
-    console.error('Error changing team:', error);
-    urlError.value = 'Error changing team. Please try again.';
+    console.error("Error changing team:", error);
+    urlError.value = "Error changing team. Please try again.";
     toast({
-      title: 'Error',
+      title: "Error",
       description: getErrorMessage(error),
-      variant: 'destructive',
+      variant: "destructive",
       duration: TOAST_DURATION.ERROR,
     });
   } finally {
@@ -281,13 +313,13 @@ async function handleSourceChange(sourceId: string) {
     urlError.value = null;
 
     if (!sourceId) {
-      selectedSourceId.value = '';
+      selectedSourceId.value = "";
       queries.value = [];
 
       // Update URL to remove source parameter - use push for proper history
       router.push({
-        path: '/logs/saved',
-        query: { team: teamsStore?.currentTeamId?.toString() || '' }
+        path: "/logs/saved",
+        query: { team: teamsStore?.currentTeamId?.toString() || "" },
       });
 
       return;
@@ -296,7 +328,9 @@ async function handleSourceChange(sourceId: string) {
     const id = parseInt(sourceId);
 
     // Verify the source exists in the current team's sources
-    const sourceExists = sourcesStore.teamSources.some(source => source.id === id);
+    const sourceExists = sourcesStore.teamSources.some(
+      (source) => source.id === id
+    );
 
     if (!sourceExists) {
       urlError.value = `Source with ID ${id} not found or not accessible by the selected team.`;
@@ -308,22 +342,21 @@ async function handleSourceChange(sourceId: string) {
 
     // Update URL with the new source - use push for proper history
     router.push({
-      path: '/logs/saved',
+      path: "/logs/saved",
       query: {
-        team: teamsStore?.currentTeamId?.toString() || '',
-        source: sourceId
-      }
+        team: teamsStore?.currentTeamId?.toString() || "",
+        source: sourceId,
+      },
     });
 
     await fetchQueries();
-
   } catch (error) {
-    console.error('Error changing source:', error);
-    urlError.value = 'Error changing source. Please try again.';
+    console.error("Error changing source:", error);
+    urlError.value = "Error changing source. Please try again.";
     toast({
-      title: 'Error',
+      title: "Error",
       description: getErrorMessage(error),
-      variant: 'destructive',
+      variant: "destructive",
       duration: TOAST_DURATION.ERROR,
     });
   } finally {
@@ -340,17 +373,18 @@ async function fetchQueries() {
   const sourceId = parseInt(selectedSourceId.value);
 
   // Double check that this source exists for the current team before making API call
-  const sourceExists = sourcesStore.teamSources.some(source => source.id === sourceId);
+  const sourceExists = sourcesStore.teamSources.some(
+    (source) => source.id === sourceId
+  );
 
   if (!sourceExists) {
-    console.warn(`Source ID ${sourceId} does not exist for team ${teamsStore.currentTeamId}, skipping query fetch`);
+    console.warn(
+      `Source ID ${sourceId} does not exist for team ${teamsStore.currentTeamId}, skipping query fetch`
+    );
     return;
   }
 
-  await loadSourceQueries(
-    teamsStore.currentTeamId,
-    sourceId
-  );
+  await loadSourceQueries(teamsStore.currentTeamId, sourceId);
 }
 
 // Format time using the formatDate utility
@@ -360,28 +394,24 @@ function formatTime(dateStr: string): string {
 
 // Handle delete query with refresh
 async function handleDeleteQuery(query: SavedTeamQuery) {
-  const result = await deleteQuery(query);
+  const result = await deleteQuery(query); // Use directly from composable
   if (result.success && selectedSourceId.value) {
     await fetchQueries();
   }
 }
 
-// Handle save query modal submission
+// Handle save query modal submission - Now uses the function from the composable instance
 async function handleSaveQuery(formData: SaveQueryFormData) {
-  const { handleSaveQuery } = useSavedQueries();
-  return await handleSaveQuery(formData);
-}
-
-// Get query type badge color
-function getQueryTypeBadgeVariant(type: string): "default" | "secondary" | "destructive" | "outline" {
-  return type === 'logchefql' ? 'default' : 'secondary';
+  // Directly call the function obtained from the composable instance
+  return await handleSaveQueryFromComposable(formData);
 }
 
 // Create a new query with current source
 function handleCreateNewQuery() {
-  createNewQuery(selectedSourceId.value ? parseInt(selectedSourceId.value) : undefined);
+  createNewQuery(
+    selectedSourceId.value ? parseInt(selectedSourceId.value) : undefined
+  );
 }
-
 </script>
 
 <template>
@@ -395,12 +425,18 @@ function handleCreateNewQuery() {
     </div>
 
     <!-- Error Alert -->
-    <div v-if="urlError" class="bg-destructive/15 text-destructive px-4 py-2 rounded-md mb-2 flex items-center">
+    <div
+      v-if="urlError"
+      class="bg-destructive/15 text-destructive px-4 py-2 rounded-md mb-2 flex items-center"
+    >
       <span class="text-sm">{{ urlError }}</span>
     </div>
 
     <!-- Show loading state -->
-    <div v-if="showLoadingState" class="flex flex-col items-center justify-center h-[calc(100vh-12rem)] gap-4">
+    <div
+      v-if="showLoadingState"
+      class="flex flex-col items-center justify-center h-[calc(100vh-12rem)] gap-4"
+    >
       <div class="space-y-4 p-4 animate-pulse">
         <div class="flex space-x-2">
           <Skeleton class="h-4 w-32" />
@@ -418,13 +454,26 @@ function handleCreateNewQuery() {
       <div class="border-b pb-3 mb-2">
         <div class="flex items-center justify-between">
           <div class="flex items-center space-x-2 text-sm">
-            <Select :model-value="teamsStore.currentTeamId ? teamsStore.currentTeamId.toString() : ''"
-              @update:model-value="handleTeamChange" class="h-8 min-w-[160px]">
+            <Select
+              :model-value="
+                teamsStore.currentTeamId
+                  ? teamsStore.currentTeamId.toString()
+                  : ''
+              "
+              @update:model-value="handleTeamChange"
+              class="h-8 min-w-[160px]"
+            >
               <SelectTrigger>
-                <SelectValue placeholder="Select a team">{{ selectedTeamName }}</SelectValue>
+                <SelectValue placeholder="Select a team">{{
+                  selectedTeamName
+                }}</SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem v-for="team in teamsStore.teams" :key="team.id" :value="team.id.toString()">
+                <SelectItem
+                  v-for="team in teamsStore.teams"
+                  :key="team.id"
+                  :value="team.id.toString()"
+                >
                   {{ team.name }}
                 </SelectItem>
               </SelectContent>
@@ -436,9 +485,12 @@ function handleCreateNewQuery() {
       <!-- Empty state content -->
       <div class="flex flex-col items-center justify-center flex-1 gap-4">
         <div class="text-center space-y-2">
-          <h2 class="text-2xl font-semibold tracking-tight">No Sources Found in {{ selectedTeamName }}</h2>
+          <h2 class="text-2xl font-semibold tracking-tight">
+            No Sources Found in {{ selectedTeamName }}
+          </h2>
           <p class="text-muted-foreground">
-            This team doesn't have any log sources configured. You can add a source or switch to another team.
+            This team doesn't have any log sources configured. You can add a
+            source or switch to another team.
           </p>
         </div>
         <div class="flex gap-3">
@@ -460,8 +512,16 @@ function handleCreateNewQuery() {
           <div class="flex items-center space-x-4 text-sm">
             <div class="flex flex-col space-y-1.5">
               <label class="text-sm font-medium leading-none">Team</label>
-              <Select :model-value="teamsStore.currentTeamId ? teamsStore.currentTeamId.toString() : ''"
-                @update:model-value="handleTeamChange" class="h-8 min-w-[160px]" :disabled="isChangingTeam">
+              <Select
+                :model-value="
+                  teamsStore.currentTeamId
+                    ? teamsStore.currentTeamId.toString()
+                    : ''
+                "
+                @update:model-value="handleTeamChange"
+                class="h-8 min-w-[160px]"
+                :disabled="isChangingTeam"
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Select a team">
                     <span v-if="isChangingTeam">Loading...</span>
@@ -469,7 +529,11 @@ function handleCreateNewQuery() {
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem v-for="team in teamsStore.teams" :key="team.id" :value="team.id.toString()">
+                  <SelectItem
+                    v-for="team in teamsStore.teams"
+                    :key="team.id"
+                    :value="team.id.toString()"
+                  >
                     {{ team.name }}
                   </SelectItem>
                 </SelectContent>
@@ -480,9 +544,16 @@ function handleCreateNewQuery() {
 
             <div class="flex flex-col space-y-1.5">
               <label class="text-sm font-medium leading-none">Source</label>
-              <Select :model-value="selectedSourceId" @update:model-value="handleSourceChange"
-                :disabled="isChangingSource || !teamsStore.currentTeamId || (sourcesStore.teamSources || []).length === 0"
-                class="h-8 min-w-[200px]">
+              <Select
+                :model-value="selectedSourceId"
+                @update:model-value="handleSourceChange"
+                :disabled="
+                  isChangingSource ||
+                  !teamsStore.currentTeamId ||
+                  (sourcesStore.teamSources || []).length === 0
+                "
+                class="h-8 min-w-[200px]"
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Select a source">
                     <span v-if="isChangingSource">Loading...</span>
@@ -490,8 +561,11 @@ function handleCreateNewQuery() {
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem v-for="source in sourcesStore.teamSources || []" :key="source.id"
-                    :value="String(source.id)">
+                  <SelectItem
+                    v-for="source in sourcesStore.teamSources || []"
+                    :key="source.id"
+                    :value="String(source.id)"
+                  >
                     {{ formatSourceName(source) }}
                   </SelectItem>
                 </SelectContent>
@@ -504,10 +578,22 @@ function handleCreateNewQuery() {
       <!-- Search box -->
       <div class="my-4">
         <div class="relative">
-          <Search class="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input v-model="searchQuery" type="search" placeholder="Search collection by name or description..."
-            class="pl-8" />
-          <Button v-if="searchQuery" variant="outline" size="sm" class="absolute right-2 top-1.5" @click="clearSearch">
+          <Search
+            class="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground"
+          />
+          <Input
+            v-model="searchQuery"
+            type="search"
+            placeholder="Search collection by name or description..."
+            class="pl-8"
+          />
+          <Button
+            v-if="searchQuery"
+            variant="outline"
+            size="sm"
+            class="absolute right-2 top-1.5"
+            @click="clearSearch"
+          >
             Clear
           </Button>
         </div>
@@ -520,7 +606,10 @@ function handleCreateNewQuery() {
       </div>
 
       <!-- Empty state - no queries -->
-      <div v-else-if="!hasQueries" class="flex flex-col justify-center items-center py-12 space-y-4">
+      <div
+        v-else-if="!hasQueries"
+        class="flex flex-col justify-center items-center py-12 space-y-4"
+      >
         <div class="rounded-full bg-muted p-3">
           <Search class="h-6 w-6 text-muted-foreground" />
         </div>
@@ -539,7 +628,8 @@ function handleCreateNewQuery() {
       <!-- Queries table -->
       <div v-else>
         <div class="text-sm text-muted-foreground mb-2">
-          {{ totalQueryCount }} {{ totalQueryCount === 1 ? 'query' : 'queries' }} in collection
+          {{ totalQueryCount }}
+          {{ totalQueryCount === 1 ? "query" : "queries" }} in collection
         </div>
 
         <Table class="font-sans">
@@ -550,21 +640,41 @@ function handleCreateNewQuery() {
               <TableHead class="w-[100px] font-sans">Type</TableHead>
               <TableHead class="w-[150px] font-sans">Created</TableHead>
               <TableHead class="w-[150px] font-sans">Updated</TableHead>
-              <TableHead class="w-[100px] text-right font-sans">Actions</TableHead>
+              <TableHead class="w-[100px] text-right font-sans"
+                >Actions</TableHead
+              >
             </TableRow>
           </TableHeader>
           <TableBody>
             <TableRow v-for="query in filteredQueries" :key="query.id">
               <TableCell class="font-medium font-sans">
-                <a @click.prevent="openQuery(query)" :href="getQueryUrl(query)"
-                  class="text-primary hover:underline cursor-pointer">
+                <a
+                  @click.prevent="openQuery(query)"
+                  :href="getQueryUrl(query)"
+                  class="text-primary hover:underline cursor-pointer"
+                >
                   {{ query.name }}
                 </a>
               </TableCell>
-              <TableCell>{{ query.description || '-' }}</TableCell>
+              <TableCell>{{ query.description || "-" }}</TableCell>
               <TableCell>
-                <Badge :variant="getQueryTypeBadgeVariant(query.query_type)">
-                  {{ query.query_type.toUpperCase() }}
+                <Badge
+                  :class="[
+                    'px-2.5 py-0.5 text-xs font-medium rounded-full',
+                    query.query_type === 'logchefql'
+                      ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
+                      : query.query_type === 'sql'
+                      ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                      : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
+                  ]"
+                >
+                  {{
+                    query.query_type === "logchefql"
+                      ? "Search"
+                      : query.query_type === "sql"
+                      ? "SQL"
+                      : query.query_type
+                  }}
                 </Badge>
               </TableCell>
               <TableCell>{{ formatTime(query.created_at) }}</TableCell>
@@ -585,7 +695,10 @@ function handleCreateNewQuery() {
                       <Pencil class="mr-2 h-4 w-4" />
                       Edit
                     </DropdownMenuItem>
-                    <DropdownMenuItem @click="handleDeleteQuery(query)" class="text-destructive">
+                    <DropdownMenuItem
+                      @click="handleDeleteQuery(query)"
+                      class="text-destructive"
+                    >
                       <Trash2 class="mr-2 h-4 w-4" />
                       Delete
                     </DropdownMenuItem>
@@ -598,8 +711,14 @@ function handleCreateNewQuery() {
       </div>
 
       <!-- Edit query modal -->
-      <SaveQueryModal v-if="showSaveQueryModal && editingQuery" :is-open="showSaveQueryModal"
-        :initial-data="editingQuery" :is-edit-mode="true" @close="showSaveQueryModal = false" @save="handleSaveQuery" />
+      <SaveQueryModal
+        v-if="showSaveQueryModal && editingQuery"
+        :is-open="showSaveQueryModal"
+        :initial-data="editingQuery"
+        :is-edit-mode="true"
+        @close="showSaveQueryModal = false"
+        @save="handleSaveQuery"
+      />
     </div>
   </div>
 </template>

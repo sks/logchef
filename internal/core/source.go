@@ -204,43 +204,6 @@ func validateSourceConfig(ctx context.Context, db *sqlite.DB, log *slog.Logger, 
 	return nil // Should technically be unreachable if GetSourceByName behaves correctly
 }
 
-// --- Helper Functions (potentially move to a shared utility file later) ---
-
-// checkTableExists attempts a simple query to verify connectivity and table existence.
-func checkTableExists(ctx context.Context, client *clickhouse.Client, log *slog.Logger, database, table string) bool {
-	if client == nil || database == "" || table == "" {
-		return false
-	}
-
-	// Use a very short timeout for this check
-	checkCtx, cancel := context.WithTimeout(ctx, 1*time.Second) // 1-second timeout for quick health checks
-	defer cancel()
-
-	query := fmt.Sprintf("SELECT 1 FROM `%s`.`%s` LIMIT 1", database, table)
-
-	// Create a channel for the query result to respect timeout precisely
-	done := make(chan bool, 1)
-
-	// Run query in a goroutine to respect timeout
-	go func() {
-		_, err := client.Query(checkCtx, query)
-		done <- (err == nil)
-	}()
-
-	// Wait for query to complete or timeout
-	select {
-	case result := <-done:
-		return result
-	case <-checkCtx.Done():
-		log.Debug("table existence check timed out",
-			"database", database,
-			"table", table,
-			"timeout", "1s",
-		)
-		return false
-	}
-}
-
 // --- Source Management Functions ---
 
 // GetSourcesWithDetails retrieves multiple sources with their full details including schema
@@ -268,16 +231,8 @@ func GetSourcesWithDetails(ctx context.Context, db *sqlite.DB, chDB *clickhouse.
 				"error", err)
 			source.IsConnected = false
 		} else {
-			// Perform a quick check to see if the table is queryable
-			// First try a very quick health check that will abort after 1 second
-			if client.QuickHealthCheck(ctx) {
-				// If basic ping succeeds, check if the table is queryable
-				source.IsConnected = checkTableExists(ctx, client, log, source.Connection.Database, source.Connection.TableName)
-			} else {
-				// Quick ping failed, mark as disconnected without doing table check
-				source.IsConnected = false
-				log.Debug("quick health check failed for source", "source_id", source.ID)
-			}
+			// Use integrated Ping method to check both connection and table existence
+			source.IsConnected = client.Ping(ctx, source.Connection.Database, source.Connection.TableName) == nil
 
 			// Only fetch schema details if source is connected
 			if source.IsConnected {
@@ -338,11 +293,11 @@ func ListSources(ctx context.Context, db *sqlite.DB, chDB *clickhouse.Manager, l
 		// Default to not connected
 		source.IsConnected = false
 
-		// Attempt to get client and perform a quick health check
+		// Attempt to get client and perform a health check that includes table verification
 		client, err := chDB.GetConnection(source.ID)
 		if err == nil {
-			// Only check if we got a valid client
-			source.IsConnected = client.QuickHealthCheck(ctx)
+			// Use integrated Ping method that checks both connection and table existence
+			source.IsConnected = client.Ping(ctx, source.Connection.Database, source.Connection.TableName) == nil
 		}
 
 		// Clear schema-related fields to avoid sending unnecessary data
@@ -380,15 +335,8 @@ func GetSource(ctx context.Context, db *sqlite.DB, chDB *clickhouse.Manager, log
 			"error", err)
 		source.IsConnected = false
 	} else {
-		// First try a very quick health check that will abort after 1 second
-		if client.QuickHealthCheck(ctx) {
-			// If basic ping succeeds, check if the table is queryable
-			source.IsConnected = checkTableExists(ctx, client, log, source.Connection.Database, source.Connection.TableName)
-		} else {
-			// Quick ping failed, mark as disconnected without doing table check
-			source.IsConnected = false
-			log.Debug("quick health check failed for source", "source_id", source.ID)
-		}
+		// Use integrated Ping method to check both connection and table existence
+		source.IsConnected = client.Ping(ctx, source.Connection.Database, source.Connection.TableName) == nil
 
 		// Fetch the table schema and CREATE statement only if the source is connected
 		if source.IsConnected {
@@ -457,8 +405,8 @@ func CreateSource(ctx context.Context, db *sqlite.DB, chDB *clickhouse.Manager, 
 
 	// 4. If not auto-creating table, verify it exists and column types are compatible
 	if !autoCreateTable {
-		// Check table existence (simple query)
-		if !checkTableExists(ctx, tempClient, log, conn.Database, conn.TableName) {
+		// Check table existence using client.Ping directly
+		if tempClient.Ping(ctx, conn.Database, conn.TableName) != nil {
 			return nil, &ValidationError{Field: "connection.tableName", Message: fmt.Sprintf("Table '%s.%s' not found", conn.Database, conn.TableName)}
 		}
 		// Validate crucial column types (Timestamp, Severity if provided)
@@ -629,8 +577,8 @@ func CheckSourceConnectionStatus(ctx context.Context, chDB *clickhouse.Manager, 
 			"error", err)
 		return false
 	}
-	// Use the helper function
-	return checkTableExists(ctx, client, log, source.Connection.Database, source.Connection.TableName)
+	// Use the integrated Ping method
+	return client.Ping(ctx, source.Connection.Database, source.Connection.TableName) == nil
 }
 
 // GetSourceHealth retrieves the health status of a source from the ClickHouse manager
@@ -675,7 +623,8 @@ func ValidateConnection(ctx context.Context, chDB *clickhouse.Manager, log *slog
 
 	// 3. If table name provided, check existence
 	if conn.TableName != "" {
-		if !checkTableExists(ctx, client, log, conn.Database, conn.TableName) {
+		// Check table existence using client.Ping directly
+		if client.Ping(ctx, conn.Database, conn.TableName) != nil {
 			return nil, &ValidationError{Field: "tableName", Message: fmt.Sprintf("Connection successful, but table '%s.%s' not found or inaccessible", conn.Database, conn.TableName)}
 		}
 	}
@@ -705,7 +654,8 @@ func ValidateConnectionWithColumns(ctx context.Context, chDB *clickhouse.Manager
 	defer client.Close()
 
 	// 3. Check table existence (implicitly required for column validation)
-	if !checkTableExists(ctx, client, log, conn.Database, conn.TableName) {
+	// Check table existence using client.Ping directly
+	if client.Ping(ctx, conn.Database, conn.TableName) != nil {
 		return nil, &ValidationError{Field: "tableName", Message: fmt.Sprintf("Connection successful, but table '%s.%s' not found or inaccessible", conn.Database, conn.TableName)}
 	}
 
@@ -719,10 +669,10 @@ func ValidateConnectionWithColumns(ctx context.Context, chDB *clickhouse.Manager
 }
 
 // SourceStats represents the combined statistics for a ClickHouse table
-// Define locally as it was defined within the source service previously
+// Use types directly from the clickhouse package
 type SourceStats struct {
-	TableStats  *clickhouse.TableStat        `json:"table_stats"`
-	ColumnStats []clickhouse.TableColumnStat `json:"column_stats"`
+	TableStats  *clickhouse.TableStat        `json:"table_stats"`  // Use pointer to allow nil if stats fail completely
+	ColumnStats []clickhouse.TableColumnStat `json:"column_stats"` // Slice is sufficient, empty if stats fail
 }
 
 // GetSourceStats retrieves statistics for a specific source (ClickHouse table)
@@ -744,76 +694,88 @@ func GetSourceStats(ctx context.Context, chDB *clickhouse.Manager, log *slog.Log
 			"error", err,
 			"source_id", source.ID,
 		)
-		return nil, fmt.Errorf("failed to get client for source: %w", err)
+		// Return an error if we can't even get the client
+		return nil, fmt.Errorf("failed to get client for source %d: %w", source.ID, err)
 	}
 
-	// Create default empty stats in case we can't get real stats
-	defaultTableStats := &clickhouse.TableStat{
-		Database:     source.Connection.Database,
-		Table:        source.Connection.TableName,
-		Compressed:   "0B",
-		Uncompressed: "0B",
-		ComprRate:    0,
-		Rows:         0,
-		PartCount:    0,
-	}
-
-	// Get table stats with fallback to default
+	// Get table stats
 	tableStats, err := client.TableStats(ctx, source.Connection.Database, source.Connection.TableName)
 	if err != nil {
-		log.Warn("failed to get table stats, using defaults",
+		log.Warn("failed to get table stats, proceeding without them",
 			"error", err,
 			"source_id", source.ID,
 		)
-		// Use default stats instead of returning an error
-		tableStats = defaultTableStats
+		// Set tableStats to nil to indicate failure, but don't return an error yet
+		// The UI can handle displaying a message if tableStats is nil.
+		tableStats = nil
 	}
 
 	// Get column stats
-	var columnStats []clickhouse.TableColumnStat
-	columnStatsResult, err := client.ColumnStats(ctx, source.Connection.Database, source.Connection.TableName)
+	columnStats, err := client.ColumnStats(ctx, source.Connection.Database, source.Connection.TableName)
 	if err != nil {
-		log.Warn("failed to get column stats, will use schema if available",
+		log.Warn("failed to get column stats, attempting to build defaults from schema",
 			"error", err,
 			"source_id", source.ID,
 		)
-	} else {
-		columnStats = columnStatsResult
+		// Explicitly set columnStats to nil or an empty slice on error
+		columnStats = nil // Indicates an error occurred fetching stats
 	}
 
-	// If we have no column stats but we know the columns from the schema,
-	// create empty stats for each column for better UX
-	if len(columnStats) == 0 && len(source.Columns) > 0 {
-		log.Info("no column stats found, creating default empty stats from schema",
-			"source_id", source.ID,
-			"column_count", len(source.Columns),
-		)
+	// If columnStats is nil (due to error) or empty (query returned no rows),
+	// and we have schema columns, create default empty stats for better UX.
+	if (columnStats == nil || len(columnStats) == 0) && len(source.Columns) > 0 {
+		if columnStats == nil {
+			log.Info("column stats query failed, creating default empty stats from schema",
+				"source_id", source.ID,
+				"column_count", len(source.Columns),
+			)
+		} else {
+			log.Info("no column stats found from query, creating default empty stats from schema",
+				"source_id", source.ID,
+				"column_count", len(source.Columns),
+			)
+		}
+
+		// Initialize or re-initialize columnStats slice
+		columnStats = make([]clickhouse.TableColumnStat, 0, len(source.Columns))
 
 		for _, col := range source.Columns {
+			// Ensure we append the correct type from the clickhouse package
 			columnStats = append(columnStats, clickhouse.TableColumnStat{
-				Database: source.Connection.Database,
-				Table:    source.Connection.TableName,
-				Column:   col.Name,
-				// Type: 		  col.Type, // Removed - Field does not exist on clickhouse.TableColumnStat
-				Compressed:   "0B",
-				Uncompressed: "0B",
+				Database:     source.Connection.Database,
+				Table:        source.Connection.TableName,
+				Column:       col.Name, // Name from schema
+				Compressed:   "N/A",    // Indicate stats are unavailable/default
+				Uncompressed: "N/A",    // Indicate stats are unavailable/default
 				ComprRatio:   0,
-				// RowsCount:    0, // These might not be meaningful without stats
-				// AvgRowSize:   0,
+				RowsCount:    0, // Default to 0 if stats unavailable
+				AvgRowSize:   0, // Default to 0 if stats unavailable
 			})
 		}
+	} else if columnStats == nil {
+		// If stats failed AND we have no schema columns, initialize to empty slice
+		columnStats = []clickhouse.TableColumnStat{}
 	}
 
+	// Construct the result, allowing tableStats to be nil if it failed
 	stats := &SourceStats{
 		TableStats:  tableStats,
 		ColumnStats: columnStats,
 	}
 
-	log.Debug("successfully retrieved source stats",
-		"source_id", source.ID,
-		"table_stats_rows", tableStats.Rows,
-		"column_stats_count", len(columnStats),
-	)
+	if tableStats != nil {
+		log.Debug("successfully retrieved source stats",
+			"source_id", source.ID,
+			"table_stats_rows", tableStats.Rows,
+			"column_stats_count", len(columnStats),
+		)
+	} else {
+		log.Debug("retrieved partial source stats (table stats failed)",
+			"source_id", source.ID,
+			"column_stats_count", len(columnStats),
+		)
+	}
 
+	// Return the stats object, even if some parts failed (logged warnings)
 	return stats, nil
 }

@@ -71,6 +71,16 @@ export function useExploreUrlSync() {
     }
   }
 
+  // Helper to safely check source details
+  function isCorrectSourceDetail(details: any, expectedId: number): boolean {
+    if (!details) return false;
+    if (typeof details !== 'object') return false;
+    // @ts-ignore - This is a runtime check
+    if (!('id' in details)) return false;
+    // @ts-ignore - We've already checked that id exists
+    return details.id === expectedId;
+  }
+
   // --- Initialization Logic ---
 
   async function initializeFromUrl() {
@@ -153,13 +163,41 @@ export function useExploreUrlSync() {
       if (!sourceId && sourcesStore.teamSources.length > 0) {
         sourceId = sourcesStore.teamSources[0].id; // Default to first source
       }
-
-      // Set source ID only (the watcher in LogExplorer will handle loading details)
+      
+      let didTriggerSourceDetailsLoad = false;
+      
+      // Set source ID and potentially load details
       if (sourceId) {
-         if (exploreStore.sourceId !== sourceId) {
+         // Check if this would be a source change
+         const isSourceChange = exploreStore.sourceId !== sourceId;
+         
+         if (isSourceChange) {
+            // Clear any previous source data since this is a new source
+            console.log(`useExploreUrlSync: Changing source ID from ${exploreStore.sourceId} to ${sourceId}`);
             exploreStore.setSource(sourceId);
+            
+            // For initialization, we should load source details here to prevent race conditions
+            try {
+              console.log(`useExploreUrlSync: Pre-loading source details for ID ${sourceId}`);
+              await sourcesStore.loadSourceDetails(sourceId);
+              didTriggerSourceDetailsLoad = true;
+              
+              // Check if details loaded
+              console.log(`useExploreUrlSync: Checking if source details are loaded for ID ${sourceId}`);
+              if (!sourcesStore.currentSourceDetails) {
+                console.warn(`useExploreUrlSync: Source details still not loaded after delay for ID ${sourceId}`);
+              } else if (!isCorrectSourceDetail(sourcesStore.currentSourceDetails, sourceId)) {
+                console.warn(`useExploreUrlSync: Source details don't match expected source ID ${sourceId}`);
+              } else {
+                console.log(`useExploreUrlSync: Successfully loaded details for source ID ${sourceId}`);
+              }
+            } catch (error) {
+              console.error(`useExploreUrlSync: Error loading source details:`, error);
+              // Don't fail the whole initialization for this
+            }
+         } else {
+            console.log(`useExploreUrlSync: Source ID unchanged at ${sourceId}`);
          }
-         // Don't load source details here - LogExplorer watcher will handle it
       } else {
          exploreStore.setSource(0); // Explicitly set to 0 if no valid source
          sourcesStore.clearCurrentSourceDetails();
@@ -229,6 +267,22 @@ export function useExploreUrlSync() {
       } else {
         exploreStore.setRawSql(queryContent);
         exploreStore.setLogchefqlCode(""); // Clear other mode
+      }
+
+      // If we changed source but haven't loaded details yet, add a small delay to allow the details to load
+      if (sourceId && !didTriggerSourceDetailsLoad && !sourcesStore.currentSourceDetails) {
+        console.log(`useExploreUrlSync: Waiting for source details to load for ID ${sourceId}`);
+        
+        // Wait a bit for any in-flight source detail requests to complete
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // Check if details loaded
+        console.log(`useExploreUrlSync: Checking if source details are loaded for ID ${sourceId}`);
+        if (!sourcesStore.currentSourceDetails) {
+          console.warn(`useExploreUrlSync: Source details still not loaded after delay for ID ${sourceId}`);
+        } else if (!isCorrectSourceDetail(sourcesStore.currentSourceDetails, sourceId)) {
+          console.warn(`useExploreUrlSync: Source details don't match expected source ID ${sourceId}`);
+        }
       }
 
     } catch (error: any) {

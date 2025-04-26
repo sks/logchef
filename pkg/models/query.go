@@ -2,88 +2,22 @@ package models
 
 import "time"
 
-// FilterOperator represents a filter operation
-type FilterOperator string
-
-const (
-	// FilterOperatorEquals represents an equality comparison
-	FilterOperatorEquals FilterOperator = "="
-
-	// FilterOperatorNotEquals represents an inequality comparison
-	FilterOperatorNotEquals FilterOperator = "!="
-
-	// FilterOperatorContains represents a case-sensitive LIKE operation
-	FilterOperatorContains FilterOperator = "contains"
-
-	// FilterOperatorNotContains represents a case-sensitive NOT LIKE operation
-	FilterOperatorNotContains FilterOperator = "not_contains"
-
-	// FilterOperatorIContains represents a case-insensitive LIKE operation
-	FilterOperatorIContains FilterOperator = "icontains"
-
-	// FilterOperatorStartsWith represents a prefix match operation
-	FilterOperatorStartsWith FilterOperator = "startswith"
-
-	// FilterOperatorEndsWith represents a suffix match operation
-	FilterOperatorEndsWith FilterOperator = "endswith"
-
-	// FilterOperatorIn represents an IN operation
-	FilterOperatorIn FilterOperator = "in"
-
-	// FilterOperatorNotIn represents a NOT IN operation
-	FilterOperatorNotIn FilterOperator = "not_in"
-
-	// FilterOperatorIsNull represents an IS NULL check
-	FilterOperatorIsNull FilterOperator = "is_null"
-
-	// FilterOperatorIsNotNull represents an IS NOT NULL check
-	FilterOperatorIsNotNull FilterOperator = "is_not_null"
-)
-
-// SortOrder represents sort direction
-type SortOrder string
-
-const (
-	// SortOrderAsc represents ascending sort order
-	SortOrderAsc SortOrder = "ASC"
-
-	// SortOrderDesc represents descending sort order
-	SortOrderDesc SortOrder = "DESC"
-)
-
-// GroupOperator represents a logical operator for combining filter groups
-type GroupOperator string
-
-const (
-	// GroupOperatorAnd represents a logical AND operation
-	GroupOperatorAnd GroupOperator = "AND"
-
-	// GroupOperatorOr represents a logical OR operation
-	GroupOperatorOr GroupOperator = "OR"
-)
-
-// FilterCondition represents a single filter condition
-type FilterCondition struct {
-	Field    string         `json:"field"`
-	Operator FilterOperator `json:"operator"`
-	Value    string         `json:"value"` // Changed from interface{} for better type safety
+// APIQueryRequest represents the request payload for the standard log querying endpoint.
+type APIQueryRequest struct {
+	Limit  int    `json:"limit"`
+	RawSQL string `json:"raw_sql"`
+	// Sort and other general query params could be added here if needed later.
 }
 
-// SortOptions represents sorting configuration
-type SortOptions struct {
-	Field string    `json:"field"`
-	Order SortOrder `json:"order"`
-}
-
-// LogQueryRequest represents the request for querying logs
-type LogQueryRequest struct {
-	StartTimestamp int64        `json:"start_timestamp"`
-	EndTimestamp   int64        `json:"end_timestamp"`
-	Limit          int          `json:"limit"`
-	RawSQL         string       `json:"raw_sql"`
-	Sort           *SortOptions `json:"sort,omitempty"`
-	Window         string       `json:"window,omitempty"`   // For histogram queries: time window size like "1m", "5m", "1h"
-	GroupBy        string       `json:"group_by,omitempty"` // For histogram queries: field to group by
+// APIHistogramRequest represents the request payload for the histogram endpoint.
+type APIHistogramRequest struct {
+	StartTimestamp int64  `json:"start_timestamp,omitempty"` // Kept for histogram, optional otherwise
+	EndTimestamp   int64  `json:"end_timestamp,omitempty"`   // Kept for histogram, optional otherwise
+	Limit          int    `json:"limit"`                     // Limit might influence histogram sampling/performance
+	RawSQL         string `json:"raw_sql"`                   // Contains non-time filters
+	Window         string `json:"window,omitempty"`          // For histogram queries: time window size like "1m", "5m", "1h"
+	GroupBy        string `json:"group_by,omitempty"`        // For histogram queries: field to group by
+	Timezone       string `json:"timezone,omitempty"`        // Kept for histogram, optional otherwise
 }
 
 // LogQueryResult represents the result of a log query

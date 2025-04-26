@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import { computed } from "vue";
+import { computed, watch } from "vue";
 import { exploreApi } from "@/api/explore";
 import type {
   ColumnInfo,
@@ -12,6 +12,7 @@ import type {
   QueryErrorResponse,
   QuerySuccessResponse,
 } from "@/api/explore";
+import type { QueryResult } from "@/types/query";
 import type { DateValue } from "@internationalized/date";
 import { now, getLocalTimeZone, CalendarDateTime } from "@internationalized/date";
 import { useSourcesStore } from "./sources";
@@ -104,6 +105,10 @@ export interface ExploreState {
   lastExecutionTimestamp?: number | null;
   // Group by field for histogram
   groupByField?: string | null;
+  // User's selected timezone identifier (e.g., 'America/New_York', 'UTC')
+  selectedTimezoneIdentifier?: string | null;
+  // Add a new state property to hold the reactively generated SQL for display/internal use
+  generatedDisplaySql?: string | null;
 }
 
 const DEFAULT_QUERY_STATS: QueryStats = {
@@ -129,6 +134,8 @@ export const useExploreStore = defineStore("explore", () => {
     lastExecutionTimestamp: null,
     selectedQueryId: null, // Initialize new state
     groupByField: null, // Initialize the groupByField
+    selectedTimezoneIdentifier: null, // Initialize the timezone identifier
+    generatedDisplaySql: null, // Initialize the new state property
   });
 
   // Getters
@@ -181,8 +188,29 @@ export const useExploreStore = defineStore("explore", () => {
     };
   }
 
+  // Get the current timezone identifier
+  function getTimezoneIdentifier(): string {
+    // Use the stored timezone or default to the browser's local timezone
+    return state.data.value.selectedTimezoneIdentifier || 
+      (localStorage.getItem('logchef_timezone') === 'utc' ? 'UTC' : getLocalTimeZone());
+  }
+
+  // Set the timezone identifier
+  function setTimezoneIdentifier(timezone: string) {
+    state.data.value.selectedTimezoneIdentifier = timezone;
+    console.log(`Explore store: Set timezone identifier to ${timezone}`);
+  }
+
   // Actions
   function setSource(sourceId: number) {
+    // Clear the generated SQL immediately to prevent using previous source's SQL
+    state.data.value.generatedDisplaySql = null;
+    // Clear the logs and result data as well to avoid showing old data
+    state.data.value.logs = [];
+    state.data.value.columns = [];
+    state.data.value.queryStats = DEFAULT_QUERY_STATS;
+    
+    // Set the new source ID
     state.data.value.sourceId = sourceId;
   }
 
@@ -340,6 +368,8 @@ export const useExploreStore = defineStore("explore", () => {
       lastExecutionTimestamp: null,
       selectedQueryId: null, // Reset selectedQueryId
       groupByField: state.data.value.groupByField, // Preserve groupByField
+      selectedTimezoneIdentifier: state.data.value.selectedTimezoneIdentifier, // Preserve timezone identifier
+      generatedDisplaySql: null, // Reset generatedDisplaySql
     };
   }
 
@@ -359,93 +389,109 @@ export const useExploreStore = defineStore("explore", () => {
         return state.handleError({ status: "error", message: "No team selected", error_type: "ValidationError" }, operationKey);
       }
 
-      let sqlToExecute: string;
+      // Get source details to check they're fully loaded
+      const sourcesStore = useSourcesStore();
+      const sourceDetails = sourcesStore.currentSourceDetails;
+      
+      // Validate that we have the current source details loaded
+      if (!sourceDetails || sourceDetails.id !== state.data.value.sourceId) {
+        console.warn(`Source details not loaded or mismatch: have ID ${sourceDetails?.id}, need ID ${state.data.value.sourceId}`);
+        return state.handleError({
+          status: "error", 
+          message: "Source details not fully loaded. Please try again.", 
+          error_type: "ValidationError"
+        }, operationKey);
+      }
 
-      // --- Logic to determine sqlToExecute (largely restored) ---
-      if (finalSql) {
-        sqlToExecute = finalSql;
-      } else {
-        const mode = state.data.value.activeMode;
-        const logchefqlQuery = state.data.value.logchefqlCode || "";
-        const rawSql = state.data.value.rawSql || "";
+      // Verify we have a valid table name for the current source
+      const tableName = sourcesStore.getCurrentSourceTableName;
+      if (!tableName) {
+        return state.handleError({
+          status: "error",
+          message: "Cannot determine table name for current source.",
+          error_type: "ValidationError"
+        }, operationKey);
+      }
 
-        try {
-          if (mode === 'logchefql') {
-            const sourcesStore = useSourcesStore();
-            const timeRange = state.data.value.timeRange;
-            const tsField = sourcesStore.currentSourceDetails?._meta_ts_field || 'timestamp';
-            const tableName = sourcesStore.getCurrentSourceTableName || '';
+      // Use the reactively generated SQL if available, otherwise generate on the fly (fallback)
+      let sqlToExecute = state.data.value.generatedDisplaySql;
 
-            if (!timeRange?.start || !timeRange?.end) {
-              return state.handleError({ status: "error", message: "Invalid time range selected", error_type: "ValidationError" }, operationKey);
-            }
-            if (!tableName) {
-              return state.handleError({ status: "error", message: "Could not determine table name for source.", error_type: "ConfigurationError" }, operationKey);
-            }
+      if (!sqlToExecute || sqlToExecute.startsWith('-- Error') || sqlToExecute.startsWith('-- Exception')) {
+        console.warn("executeQuery: generatedDisplaySql not usable, regenerating SQL on the fly.");
+        if (!state.data.value.timeRange) {
+          return state.handleError({
+            status: "error",
+            message: 'Cannot generate query without a valid time range.',
+            error_type: "ValidationError"
+          }, operationKey);
+        }
+        const generationOptions = {
+            tableName: tableName,
+            tsField: sourceDetails?._meta_ts_field || 'timestamp',
+            timeRange: state.data.value.timeRange,
+            limit: state.data.value.limit,
+            timezone: getTimezoneIdentifier(),
+            logchefqlQuery: state.data.value.logchefqlCode || ''
+        };
+        const result = state.data.value.activeMode === 'logchefql'
+            ? QueryService.translateLogchefQLToSQL(generationOptions)
+            : QueryService.generateDefaultSQL(generationOptions); // Or maybe use rawSql here? Sticking to generation
 
-            // Use the new QueryService to prepare the query
-            const result = QueryService.translateLogchefQLToSQL({
-              tableName: tableName,
-              tsField: tsField,
-              timeRange: timeRange,
-              limit: state.data.value.limit,
-              logchefqlQuery: logchefqlQuery
-            });
-
-            if (!result.success) {
-              return state.handleError({
-                status: "error",
-                message: result.error || 'Failed to build SQL from LogchefQL',
-                error_type: "BuildError"
-              }, operationKey);
-            }
+        if (result.success) {
             sqlToExecute = result.sql;
-          } else { // SQL mode
-            sqlToExecute = rawSql;
-            // Basic validation for SQL mode query presence
-            if (!sqlToExecute.trim()) {
-              return state.handleError({
-                status: "error",
-                message: `Cannot execute empty SQL query`,
-                error_type: "ValidationError"
-              }, operationKey);
-            }
-
-            // Optionally validate the SQL
-            if (!QueryService.validateSQL(sqlToExecute)) {
-              return state.handleError({
-                status: "error",
-                message: "Invalid SQL syntax",
-                error_type: "ValidationError"
-              }, operationKey);
-            }
-          }
-        } catch (error: any) {
-            return state.handleError({ status: "error", message: error.message || "Failed to prepare query", error_type: "QueryError" }, operationKey);
+        } else {
+            return state.handleError({
+              status: "error",
+              message: result.error || 'Failed to generate query for execution',
+              error_type: "QueryError"
+            }, operationKey);
         }
       }
-      // --- End logic to determine sqlToExecute ---
+
+      // Use rawSql directly if in SQL mode and generatedDisplaySql is null/error
+      // This handles cases where the user manually typed SQL that hasn't been re-gen by watcher yet
+      if (state.data.value.activeMode === 'sql' && (!sqlToExecute || sqlToExecute.startsWith('-- '))) {
+         sqlToExecute = state.data.value.rawSql;
+      }
+
+      if (!sqlToExecute || !sqlToExecute.trim()) {
+         return state.handleError({
+            status: "error",
+            message: "Cannot execute an empty query.",
+            error_type: "ValidationError"
+         }, operationKey);
+      }
+
+      // Validate the SQL references the correct table name before execution
+      if (tableName && !sqlToExecute.includes(tableName)) {
+        const tableFromSql = extractTableNameFromSql(sqlToExecute);
+        if (tableFromSql && tableFromSql !== tableName) {
+          console.error(`SQL references table ${tableFromSql} but current source uses ${tableName}`);
+          return state.handleError({
+            status: "error",
+            message: `Query references incorrect table (${tableFromSql}). Current source uses ${tableName}.`,
+            error_type: "ValidationError"
+          }, operationKey);
+        }
+      }
 
       // Store current state before execution
       const executionState = {
-        timeRange: JSON.stringify(state.data.value.timeRange),
+        timeRange: JSON.stringify(state.data.value.timeRange), // Keep original time range info
         limit: state.data.value.limit,
-        query: (state.data.value.activeMode === 'logchefql' ? state.data.value.logchefqlCode : state.data.value.rawSql) || '',
+        query: sqlToExecute, // Store the SQL that was actually executed
         mode: state.data.value.activeMode,
-        logchefqlQuery: state.data.value.logchefqlCode,
-        sqlQuery: state.data.value.rawSql
+        logchefqlQuery: state.data.value.logchefqlCode, // Store original LogchefQL
+        sqlQuery: sqlToExecute // Store executed SQL here too for consistency?
       };
       console.log('Explore store: Setting last executed state:', executionState);
       state.data.value.lastExecutedState = executionState;
 
       // Prepare parameters for the correct API call (getLogs)
-      const timestamps = getTimestamps();
       const params: QueryParams = {
           raw_sql: sqlToExecute,
-          limit: state.data.value.limit,
-          start_timestamp: timestamps.start,
-          end_timestamp: timestamps.end,
-          query_type: state.data.value.activeMode
+          limit: state.data.value.limit, // Keep limit
+          // start_timestamp, end_timestamp, and timezone are now baked into raw_sql
       };
 
       // Use the centralized API calling mechanism from base store
@@ -510,6 +556,22 @@ export const useExploreStore = defineStore("explore", () => {
           return { success: false, error: response.error };
       }
     });
+  }
+
+  // Helper function to extract table name from SQL
+  function extractTableNameFromSql(sql: string): string | null {
+    try {
+      // Simple regex to find table name after FROM
+      const fromMatch = /\bFROM\s+(?:`?([^`\s()]+\.[^`\s()]+)`?|\(?`?([^`\s()]+)`?\s+AS\s+[^`\s()]+\)?)/i.exec(sql);
+      if (fromMatch) {
+        // Return the first captured group that isn't undefined
+        return fromMatch[1] || fromMatch[2] || null;
+      }
+      return null;
+    } catch (error) {
+      console.error("Error extracting table name from SQL:", error);
+      return null;
+    }
   }
 
   // Get log context
@@ -601,6 +663,121 @@ export const useExploreStore = defineStore("explore", () => {
     return state.data.value.selectedRelativeTime;
   }
 
+  // --- Reactive Query Generation Watcher ---
+  watch(
+    // Watch multiple sources
+    [
+      () => state.data.value.sourceId,
+      () => state.data.value.selectedTimezoneIdentifier,
+      () => state.data.value.timeRange,
+      () => state.data.value.logchefqlCode,
+      () => state.data.value.activeMode,
+      () => state.data.value.limit,
+      // Also watch source details, as table name/ts field might change
+      () => useSourcesStore().currentSourceDetails,
+    ],
+    async (
+      [
+        sourceId,
+        timezone,
+        timeRange,
+        logchefqlCode,
+        activeMode,
+        limit,
+        sourceDetails,
+      ],
+      oldValues
+    ) => {
+      console.log("Explore Store Watcher: Detected change in state.");
+
+      // Prevent running if essential data is missing
+      if (
+        !sourceId ||
+        !timeRange ||
+        !sourceDetails ||
+        !sourceDetails.connection?.table_name ||
+        !sourceDetails._meta_ts_field
+      ) {
+        console.log("Explore Store Watcher: Missing essential data, skipping SQL generation.");
+        // Clear generated SQL if conditions aren't met
+        state.data.value.generatedDisplaySql = null;
+        return;
+      }
+
+      const tableName = `${sourceDetails.connection.database}.${sourceDetails.connection.table_name}`;
+      const tsField = sourceDetails._meta_ts_field;
+      const effectiveTimezone = timezone || getTimezoneIdentifier(); // Use state value or default
+
+      let result: QueryResult;
+
+      try {
+        if (activeMode === "logchefql") {
+          console.log("Explore Store Watcher: Generating SQL from LogchefQL.");
+          result = QueryService.translateLogchefQLToSQL({
+            tableName,
+            tsField,
+            timeRange,
+            limit,
+            logchefqlQuery: logchefqlCode || "",
+            timezone: effectiveTimezone,
+          });
+        } else { // activeMode === 'sql'
+          console.log("Explore Store Watcher: Generating default SQL for SQL mode.");
+          // In SQL mode, we regenerate the *base* query using current params
+          // We assume the user modifies rawSql directly for complex changes
+          result = QueryService.generateDefaultSQL({
+            tableName,
+            tsField,
+            timeRange,
+            limit,
+            timezone: effectiveTimezone,
+          });
+
+          // Special case: If only the timezone changed and rawSql already exists,
+          // try to *update* the timezone within the existing rawSql instead of overwriting.
+          // This is complex and might be fragile. Let's stick to regenerating for now.
+          // A better approach might involve parsing/modifying the rawSql AST.
+        } 
+
+        if (result.success) {
+          console.log("Explore Store Watcher: SQL generation successful.");
+          state.data.value.generatedDisplaySql = result.sql;
+
+          // Conditionally update rawSql ONLY if in SQL mode AND the trigger wasn't a direct rawSql edit
+          // (This simplistic check might not be robust enough for all cases)
+          if (activeMode === 'sql' && state.data.value.rawSql !== result.sql) {
+             // Check if the change was driven by parameters (not direct SQL edit)
+             const sourceChanged = oldValues[0] !== sourceId;
+             const timezoneChanged = oldValues[1] !== timezone;
+             const timeRangeChanged = JSON.stringify(oldValues[2]) !== JSON.stringify(timeRange);
+             const logchefCodeChanged = oldValues[3] !== logchefqlCode; // Check if LogchefQL code changed
+             const modeChanged = oldValues[4] !== activeMode;
+             const limitChanged = oldValues[5] !== limit; // Correct index for limit
+             const sourceDetailsChanged = JSON.stringify(oldValues[6]) !== JSON.stringify(sourceDetails); // Correct index for sourceDetails
+  
+             // If the change was driven by parameters (not direct SQL edit), update rawSql
+             if ((timezoneChanged || timeRangeChanged || limitChanged || sourceChanged || modeChanged || sourceDetailsChanged) && !logchefCodeChanged) {
+                   console.log("Explore Store Watcher: Updating rawSql in SQL mode due to parameter change.");
+                   state.data.value.rawSql = result.sql;
+             }
+          }
+
+        } else {
+          console.error("Explore Store Watcher: SQL generation failed:", result.error);
+          state.data.value.generatedDisplaySql = `-- Error generating query: ${result.error}`;
+        }
+      } catch (error) {
+          console.error("Explore Store Watcher: Exception during SQL generation:", error);
+          state.data.value.generatedDisplaySql = `-- Exception generating query: ${error}`;
+      }
+    },
+    {
+      deep: true, // Watch nested properties like timeRange
+      immediate: true, // Run once on store initialization
+    }
+  );
+  // --- End Watcher ---
+
   // Return the store
   return {
     // State
@@ -627,6 +804,8 @@ export const useExploreStore = defineStore("explore", () => {
     selectedQueryId: computed(() => state.data.value.selectedQueryId),
     activeSavedQueryName: computed(() => state.data.value.activeSavedQueryName),
     groupByField: computed(() => state.data.value.groupByField),
+    selectedTimezoneIdentifier: computed(() => state.data.value.selectedTimezoneIdentifier),
+    generatedDisplaySql: computed(() => state.data.value.generatedDisplaySql), // Expose the new computed property
 
     // Loading state
     isLoading: state.isLoading,
@@ -654,6 +833,7 @@ export const useExploreStore = defineStore("explore", () => {
     getLogContext,
     clearError,
     setGroupByField,
+    setTimezoneIdentifier,
 
     // Loading state helpers
     isLoadingOperation: state.isLoadingOperation,

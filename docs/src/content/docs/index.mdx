@@ -26,10 +26,12 @@ Logchef is a dedicated log query and visualization interface built specifically 
 
 **Focus on querying, not ingestion:** Logchef intentionally doesn't handle log collection, relying instead on established tools like Vector, Filebeat, Promtail, or Logstash that already do this job reliably.
 
+![Logchef Explore View](/screenshots/logchef_light_explore.png)
+
 <CardGrid stagger>
   <Card title="Specialized for ClickHouse" icon="document">
-    Purpose-built interface that leverages ClickHouse's columnar architecture and
-    analytical capabilities for log exploration.
+    Purpose-built interface that leverages ClickHouse's columnar architecture
+    and analytical capabilities for log exploration.
   </Card>
   <Card title="Dual Query Modes" icon="open-book">
     Simple search syntax for quick exploration, full SQL power when you need it.
@@ -40,8 +42,8 @@ Logchef is a dedicated log query and visualization interface built specifically 
     granular access controls.
   </Card>
   <Card title="Schema Agnostic" icon="setting">
-    Works with any ClickHouse log table structure. No forced migrations or schema
-    changes to your existing setup.
+    Works with any ClickHouse log table structure. No forced migrations or
+    schema changes to your existing setup.
   </Card>
 </CardGrid>
 
@@ -63,6 +65,9 @@ Logchef provides the missing piece: a specialized, user-friendly interface to un
 - **Simple Search Syntax**: `status=200`, `level="error" AND service="payment-api"`
 - **Full SQL Power**: Write raw ClickHouse SQL for complex analysis
 - **Collections**: Save and organize reusable queries per source for your team
+
+![Logchef Collections View](/screenshots/logchef_collections.png)
+
 - **Smart Field Suggestions**: Intelligent field name autocompletion as you type
 
 ### Team Management

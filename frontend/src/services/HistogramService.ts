@@ -1,6 +1,10 @@
 import type { APIResponse } from '@/api/types';
 import { exploreApi, type HistogramResponse, type QueryParams } from '@/api/explore';
 import { isErrorResponse } from '@/api/types';
+import { useExploreStore } from '@/stores/explore';
+import { QueryService } from '@/services/QueryService';
+import { CalendarDateTime, parseDateTime, type DateValue } from '@internationalized/date';
+import type { TimeRange } from '@/types/query';
 
 export interface HistogramData {
   bucket: string;
@@ -19,6 +23,7 @@ export interface HistogramParams {
   queryType: 'logchefql' | 'sql';
   granularity?: string; // '1m', '10m', '1h', '1d', etc.
   groupBy?: string; // Optional field to group by
+  timezone?: string; // User's timezone identifier (e.g., 'America/New_York', 'UTC')
 }
 
 export class HistogramService {
@@ -113,6 +118,7 @@ export class HistogramService {
         },
         queryType: params.queryType,
         groupBy: params.groupBy,
+        timezone: params.timezone,
         queryLength: params.query?.length || 0
       });
 
@@ -122,14 +128,18 @@ export class HistogramService {
 
       console.log(`Using histogram granularity: ${granularity}`);
 
+      // Get the explore store to access generatedDisplaySql
+      const exploreStore = useExploreStore();
+      
+      // Always use the explore store's SQL which has the correct timezone
+      const sql = exploreStore.generatedDisplaySql;
+
       // Prepare query parameters for the API
       const queryParams: QueryParams = {
-        raw_sql: params.query,
+        raw_sql: sql || params.query, // Fallback to params.query only if exploreStore has no SQL yet
         limit: 100,
-        start_timestamp: new Date(params.timeRange.start).getTime(),
-        end_timestamp: new Date(params.timeRange.end).getTime(),
-        query_type: params.queryType,
         window: granularity,
+        timezone: params.timezone,
       };
 
       // Only include group_by if it has a non-empty value
@@ -139,10 +149,9 @@ export class HistogramService {
 
       console.log("HistogramService: Calling API with params:", {
         sourceId: params.sourceId,
-        timestamps: [queryParams.start_timestamp, queryParams.end_timestamp],
-        queryType: queryParams.query_type,
         window: queryParams.window,
-        groupBy: queryParams.group_by
+        groupBy: queryParams.group_by,
+        timezone: queryParams.timezone
       });
 
       // Call the API with all parameters in the body

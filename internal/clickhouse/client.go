@@ -2,6 +2,7 @@ package clickhouse
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"reflect"
@@ -154,8 +155,12 @@ func (c *Client) executeQueryWithHooks(ctx context.Context, query string, fn fun
 
 // Query executes a SELECT query, processes the results, and applies query hooks.
 // It automatically handles DDL statements by calling execDDL.
-func (c *Client) Query(ctx context.Context, query string) (*models.QueryResult, error) {
-	start := time.Now() // Used for calculating total duration including hook overhead.
+// The params argument is now unused but kept for potential future structured query building.
+func (c *Client) Query(ctx context.Context, query string /* params LogQueryParams - Removed */) (*models.QueryResult, error) {
+	start := time.Now()          // Used for calculating total duration including hook overhead.
+	queryStartTime := time.Now() // Separate timer for actual DB execution
+	var queryDuration time.Duration
+
 	defer func() {
 		c.logger.Debug("query processing complete",
 			"duration_ms", time.Since(start).Milliseconds(),
@@ -170,25 +175,32 @@ func (c *Client) Query(ctx context.Context, query string) (*models.QueryResult, 
 
 	var rows driver.Rows
 	var resultData []map[string]interface{}
-	var columns []models.ColumnInfo
+	var columnsInfo []models.ColumnInfo
 
 	// Execute the core query logic within the hook wrapper.
 	err := c.executeQueryWithHooks(ctx, query, func(hookCtx context.Context) error {
 		var queryErr error
+		queryStartTime = time.Now() // Reset timer before execution
 		rows, queryErr = c.conn.Query(hookCtx, query)
+		// Defer rows.Close() here. We are abandoning getting accurate stats from the driver for now.
+		if rows != nil { // Only defer close if rows is not nil
+			defer func() {
+				// Closing might return an error, potentially overriding queryErr
+				// Consider how to handle this if needed, for now, we prioritize queryErr
+				// closeErr := rows.Close()
+				rows.Close()
+			}()
+		}
 		if queryErr != nil {
 			return queryErr // Return error to be logged by AfterQuery hook.
 		}
-		// Defer rows.Close() inside the function passed to executeQueryWithHooks
-		// to ensure it closes even if hook processing fails later.
-		defer rows.Close()
 
 		// Get column names and types.
 		columnTypes := rows.ColumnTypes()
-		columns = make([]models.ColumnInfo, len(columnTypes))
-		scanDest := make([]interface{}, len(columnTypes)) // Prepare scan destinations.
+		columnsInfo = make([]models.ColumnInfo, len(columnTypes)) // Use new name
+		scanDest := make([]interface{}, len(columnTypes))         // Prepare scan destinations.
 		for i, ct := range columnTypes {
-			columns[i] = models.ColumnInfo{
+			columnsInfo[i] = models.ColumnInfo{
 				Name: ct.Name(),
 				Type: ct.DatabaseTypeName(),
 			}
@@ -204,12 +216,13 @@ func (c *Client) Query(ctx context.Context, query string) (*models.QueryResult, 
 			}
 
 			rowMap := make(map[string]interface{})
-			for i, col := range columns {
+			for i, col := range columnsInfo { // Use new name
 				// Dereference the pointer to get the actual scanned value.
 				rowMap[col.Name] = reflect.ValueOf(scanDest[i]).Elem().Interface()
 			}
 			resultData = append(resultData, rowMap)
 		}
+		queryDuration = time.Since(queryStartTime) // Capture DB execution duration
 
 		// Check for errors during row iteration.
 		return rows.Err()
@@ -223,10 +236,11 @@ func (c *Client) Query(ctx context.Context, query string) (*models.QueryResult, 
 	// Construct the final result.
 	queryResult := &models.QueryResult{
 		Logs:    resultData,
-		Columns: columns,
+		Columns: columnsInfo,
 		Stats: models.QueryStats{
-			RowsRead:        len(resultData),
-			ExecutionTimeMs: float64(time.Since(start).Milliseconds()), // Total time including hooks.
+			RowsRead:        len(resultData), // Use length of returned data as approximation
+			BytesRead:       0,               // Cannot reliably get BytesRead currently
+			ExecutionTimeMs: float64(queryDuration.Milliseconds()),
 		},
 	}
 
@@ -269,27 +283,22 @@ func isDDLStatement(query string) bool {
 	return false
 }
 
-// CheckHealth performs a simple ping to verify the database connection is alive.
-func (c *Client) CheckHealth(ctx context.Context) error {
-	return c.conn.Ping(ctx)
-}
-
 // Close terminates the underlying database connection with a timeout.
 func (c *Client) Close() error {
 	c.logger.Info("closing clickhouse client connection")
-	
+
 	// Create a timeout context for the close operation
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	
+
 	// Create a channel to signal completion
 	done := make(chan error, 1)
-	
+
 	// Close the connection in a goroutine
 	go func() {
 		done <- c.conn.Close()
 	}()
-	
+
 	// Wait for close to complete or timeout
 	select {
 	case err := <-done:
@@ -313,13 +322,13 @@ func (c *Client) Reconnect(ctx context.Context) error {
 		// Try to close the existing connection first with a timeout
 		closeCtx, closeCancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer closeCancel()
-		
+
 		closeComplete := make(chan struct{})
 		go func() {
 			_ = c.conn.Close() // Ignore close errors
 			close(closeComplete)
 		}()
-		
+
 		// Wait for close to complete or timeout
 		select {
 		case <-closeComplete:
@@ -345,20 +354,20 @@ func (c *Client) Reconnect(ctx context.Context) error {
 	// Test the new connection with a short timeout
 	pingCtx, pingCancel := context.WithTimeout(ctx, 3*time.Second)
 	defer pingCancel()
-	
+
 	if err := newConn.Ping(pingCtx); err != nil {
 		// Clean up failed connection with timeout
 		closeCtx, closeCancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer closeCancel()
-		
+
 		go func() {
 			_ = newConn.Close() // Clean up failed connection
 			close(make(chan struct{}))
 		}()
-		
+
 		// Just wait for timeout - we don't care about the result
 		<-closeCtx.Done()
-		
+
 		return fmt.Errorf("ping after reconnect failed: %w", err)
 	}
 
@@ -367,7 +376,6 @@ func (c *Client) Reconnect(ctx context.Context) error {
 	c.logger.Info("successfully reconnected to clickhouse")
 	return nil
 }
-
 
 // GetTableInfo retrieves detailed metadata about a table, including handling
 // for Distributed tables by inspecting the underlying local table.
@@ -751,62 +759,61 @@ func isKeyword(s string) bool {
 	return keywords[lowerS]
 }
 
-// Ping checks the connectivity to the ClickHouse server.
-// It sends a PING request and waits for a PONG response.
-// If no context is provided or has no deadline, a default short timeout is applied.
-func (c *Client) Ping(ctx context.Context) error {
+// Ping checks the connectivity to the ClickHouse server and optionally verifies a table exists.
+// It uses short timeouts internally. Returns nil on success, or an error indicating the failure reason.
+func (c *Client) Ping(ctx context.Context, database string, table string) error {
 	if c.conn == nil {
-		return fmt.Errorf("clickhouse client connection is nil")
+		return errors.New("clickhouse connection is nil")
 	}
-	
-	// Apply a default 1-second timeout if context doesn't have a deadline
-	var cancel context.CancelFunc
-	_, hasDeadline := ctx.Deadline()
-	if !hasDeadline {
-		ctx, cancel = context.WithTimeout(ctx, 1*time.Second)
-		defer cancel()
-	}
-	
-	// Use the underlying driver connection's Ping method
-	if err := c.conn.Ping(ctx); err != nil {
-		// Check if it's a context timeout or cancellation
-		if ctx.Err() != nil {
-			c.logger.Debug("clickhouse ping timeout/cancelled", "context_error", ctx.Err())
-			return fmt.Errorf("clickhouse ping failed due to context: %w", ctx.Err())
-		}
-		// Log the specific ping error for debugging
-		c.logger.Debug("clickhouse ping failed", "error", err)
-		return fmt.Errorf("clickhouse ping failed: %w", err)
-	}
-	return nil
-}
 
-// QuickHealthCheck performs a very fast health check with a strict 1-second timeout.
-// This method is specifically designed for source listing operations where we don't want
-// to block the UI for long periods.
-func (c *Client) QuickHealthCheck(ctx context.Context) bool {
-	if c.conn == nil {
-		return false
+	// 1. Check basic connection with a short timeout.
+	pingCtx, pingCancel := context.WithTimeout(ctx, 1*time.Second)
+	defer pingCancel()
+
+	if err := c.conn.Ping(pingCtx); err != nil {
+		// Check if the error is due to the context deadline exceeding
+		if errors.Is(err, context.DeadlineExceeded) {
+			c.logger.Debug("ping timed out after 1 second")
+			return fmt.Errorf("ping timed out: %w", err)
+		}
+		return fmt.Errorf("ping failed: %w", err)
 	}
-	
-	// Always use a strict 1-second timeout regardless of parent context
-	checkCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
-	defer cancel()
-	
-	// Create a channel to get the ping result
-	done := make(chan error, 1)
-	
-	// Run ping in a separate goroutine to ensure timeout is respected
-	go func() {
-		done <- c.conn.Ping(checkCtx)
-	}()
-	
-	// Wait for ping to complete or timeout
-	select {
-	case err := <-done:
-		return err == nil
-	case <-checkCtx.Done():
-		c.logger.Debug("quick health check timed out after 1 second")
-		return false
+
+	// 2. If database and table are provided, check table existence.
+	if database == "" || table == "" {
+		return nil // Basic ping successful, no table check needed.
 	}
+
+	tableCtx, tableCancel := context.WithTimeout(ctx, 1*time.Second)
+	defer tableCancel()
+
+	// Query system.tables to check if the table exists. Using QueryRow and Scan.
+	// If the table doesn't exist, QueryRow will return an error (sql.ErrNoRows or similar).
+	query := `SELECT 1 FROM system.tables WHERE database = ? AND name = ? LIMIT 1`
+	// Use uint8 as the target type for scanning SELECT 1, as recommended by the driver error.
+	var exists uint8
+
+	// No need for executeQueryWithHooks here, it's a simple metadata check.
+	err := c.conn.QueryRow(tableCtx, query, database, table).Scan(&exists)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			c.logger.Debug("table check timed out", "database", database, "table", table, "timeout", "1s")
+			return fmt.Errorf("table check timed out for %s.%s: %w", database, table, err)
+		}
+		// Check specifically for sql.ErrNoRows which indicates the table doesn't exist.
+		// The clickhouse-go driver might wrap this, so checking the string might be necessary
+		// if errors.Is(err, sql.ErrNoRows) doesn't work reliably across versions.
+		// For now, we rely on the error message in the log.
+		if strings.Contains(err.Error(), "no rows in result set") {
+			c.logger.Debug("table not found in system.tables", "database", database, "table", table)
+			return fmt.Errorf("table '%s.%s' not found: %w", database, table, err)
+		} else {
+			// Log other scan/query errors.
+			c.logger.Debug("table existence check query failed", "database", database, "table", table, "error", err)
+			return fmt.Errorf("checking table '%s.%s' failed: %w", database, table, err)
+		}
+	}
+
+	// If Scan succeeds without error, the table exists.
+	return nil
 }
