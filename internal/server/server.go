@@ -14,7 +14,6 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/compress"
 	"github.com/gofiber/fiber/v2/middleware/filesystem"
-	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/swagger" // Swagger handler
 
 	// Import generated docs (will be created after running swag init)
@@ -85,7 +84,7 @@ func New(opts ServerOptions) *Server {
 	})
 
 	// Add essential middleware.
-	app.Use(recover.New()) // Recover from panics.
+	// app.Use(recover.New()) // Recover from panics.
 	app.Use(compress.New(compress.Config{
 		Level: compress.LevelBestSpeed, // Prioritize speed over maximum compression
 	})) // Compress responses
