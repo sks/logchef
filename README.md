@@ -5,7 +5,8 @@
 
 <p align="center">
   <a href="https://demo.logchef.app"><strong>Try Demo</strong></a> ·
-  <a href="https://logchef.app"><strong>Read Documentation</strong></a>
+  <a href="https://logchef.app"><strong>Read Documentation</strong></a> ·
+  <a href="https://mrkaran.dev/posts/announcing-logchef/"><strong>Announcement Blog Post</strong></a>
 </p>
 
 ![Logchef Light Explore View](screenshots/logchef_light_explore.png)
