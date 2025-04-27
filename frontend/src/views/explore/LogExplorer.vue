@@ -1433,7 +1433,7 @@ onBeforeUnmount(() => {
                     "
                     :placeholder="
                       exploreStore.activeMode === 'logchefql'
-                        ? 'Enter search criteria (e.g., level=&quot;error&quot; and status>400)'
+                        ? 'Enter search criteria (e.g., lvl=&quot;ERROR&quot; and namespace~&quot;sys&quot;)'
                         : 'Enter SQL query...'
                     "
                     :tsField="sourceDetails?._meta_ts_field || 'timestamp'"
