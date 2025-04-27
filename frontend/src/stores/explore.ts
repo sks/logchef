@@ -90,6 +90,8 @@ export interface ExploreState {
   selectedQueryId?: string | null;
   // NEW: Name of the currently active saved query (if any)
   activeSavedQueryName?: string | null;
+  // Flag to skip next URL sync (for multi-component coordination)
+  skipNextUrlSync?: boolean;
   // Query stats
   stats?: any;
   // Last executed query state
@@ -348,11 +350,15 @@ export const useExploreStore = defineStore("explore", () => {
     // Clear active saved query information
     state.data.value.selectedQueryId = null;
     state.data.value.activeSavedQueryName = null;
+    
+    // Reset URL sync flag
+    state.data.value.skipNextUrlSync = false;
   }
 
   // Reset state
   function resetState() {
-    state.data.value = {
+    // Initialize the state data with default values
+    const initialData = {
       logs: [],
       columns: [],
       queryStats: DEFAULT_QUERY_STATS,
@@ -367,10 +373,15 @@ export const useExploreStore = defineStore("explore", () => {
       lastExecutedState: undefined,
       lastExecutionTimestamp: null,
       selectedQueryId: null, // Reset selectedQueryId
+      activeSavedQueryName: null, // Reset activeSavedQueryName
+      skipNextUrlSync: false, // Reset URL sync flag
       groupByField: state.data.value.groupByField, // Preserve groupByField
       selectedTimezoneIdentifier: state.data.value.selectedTimezoneIdentifier, // Preserve timezone identifier
       generatedDisplaySql: null, // Reset generatedDisplaySql
     };
+    
+    // Update the state data with the initial values
+    state.data.value = initialData;
   }
 
   // Main query execution
@@ -615,6 +626,12 @@ export const useExploreStore = defineStore("explore", () => {
     console.log('Explore store: Updating execution timestamp');
     state.data.value.lastExecutionTimestamp = Date.now();
   }
+  
+  // Add helper to set skipNextUrlSync flag
+  function setSkipNextUrlSync(value: boolean) {
+    console.log(`Explore store: Setting skipNextUrlSync to ${value}`);
+    state.data.value.skipNextUrlSync = value;
+  }
 
   // Clear error helper
   function clearError() {
@@ -853,6 +870,10 @@ export const useExploreStore = defineStore("explore", () => {
     lastExecutionTimestamp: computed(() => state.data.value.lastExecutionTimestamp),
     selectedQueryId: computed(() => state.data.value.selectedQueryId),
     activeSavedQueryName: computed(() => state.data.value.activeSavedQueryName),
+    skipNextUrlSync: computed({
+      get: () => state.data.value.skipNextUrlSync,
+      set: (v) => state.data.value.skipNextUrlSync = v
+    }),
     groupByField: computed(() => state.data.value.groupByField),
     selectedTimezoneIdentifier: computed(() => state.data.value.selectedTimezoneIdentifier),
     generatedDisplaySql: computed(() => state.data.value.generatedDisplaySql), // Expose the new computed property
@@ -878,6 +899,7 @@ export const useExploreStore = defineStore("explore", () => {
     resetQueryStateToDefault,
     setLastExecutedState,
     updateExecutionTimestamp,
+    setSkipNextUrlSync,
     resetState,
     executeQuery,
     getLogContext,
