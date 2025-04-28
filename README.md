@@ -1,7 +1,7 @@
-<p align="center">
-  <h1 align="center">Logchef</h1>
-  <p align="center">A modern, high-performance log analytics platform</p>
-</p>
+<a href="https://zerodha.tech"><img src="https://zerodha.tech/static/images/github-badge.svg" /></a>
+
+<h1 align="center">Logchef</h1>
+<p align="center">A modern, single binary, high-performance log analytics platform</p>
 
 <p align="center">
   <a href="https://demo.logchef.app"><strong>Try Demo</strong></a> ·
@@ -9,9 +9,7 @@
   <a href="https://mrkaran.dev/posts/announcing-logchef/"><strong>Announcement Blog Post</strong></a>
 </p>
 
-![Logchef Light Explore View](screenshots/logchef_light_explore.png)
----
-
+## ![Logchef Light Explore View](screenshots/logchef_light_explore.png)
 
 Logchef is a lightweight, powerful log analytics platform designed for efficient log management and analysis. It operates as a single binary, utilizing ClickHouse for high-performance log storage and querying. Logchef provides an intuitive interface for exploring log data, making it suitable for development teams seeking a robust and scalable solution.
 

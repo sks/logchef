@@ -53,6 +53,7 @@ This architectural approach allows LogChef to leverage the existing ecosystem of
 ## Data Flow
 
 1. **Log Ingestion** (external to LogChef):
+
    - Various collectors (Vector, Filebeat, etc.) send logs to ClickHouse
    - Each collector handles its own schema mapping and transformations
 
@@ -78,6 +79,7 @@ SQLite manages all system configuration and relationships:
 LogChef connects to multiple remote ClickHouse databases as sources:
 
 - **Schema Flexibility**: Sources can:
+
   - Use the default OTEL schema as-is
   - Customize the built-in OpenTelemetry (OTEL) schema
   - Use custom schemas
