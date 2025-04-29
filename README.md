@@ -27,7 +27,7 @@ Logchef is a lightweight, powerful log analytics platform designed for efficient
 
 ```shell
 # Download the Docker Compose file
-curl -LO https://github.com/mr-karan/logchef/raw/master/deployment/docker/docker-compose.yml
+curl -LO https://raw.githubusercontent.com/mr-karan/logchef/refs/heads/main/deployment/docker/docker-compose.yml
 
 # Start the services
 docker compose up -d
