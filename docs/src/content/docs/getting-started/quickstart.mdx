@@ -19,7 +19,7 @@ The Docker setup is the easiest way to get started with Logchef, as it includes 
 
 ```bash
 # Download the compose file
-curl -LO https://github.com/mr-karan/logchef/raw/master/deployment/docker/docker-compose.yml
+curl -LO https://raw.githubusercontent.com/mr-karan/logchef/refs/heads/main/deployment/docker/docker-compose.yml
 
 # Start the services
 docker compose up -d
@@ -40,10 +40,11 @@ For production deployments or running without Docker, you can download pre-built
 
 ```bash
 # Download the latest release for your platform (example for Linux amd64)
-curl -L -O https://github.com/mr-karan/logchef/releases/latest/download/logchef_linux_amd64.tar.gz
+# Check latest version at https://github.com/mr-karan/logchef/releases
+curl -L -O https://github.com/mr-karan/logchef/releases/download/v0.2.1/logchef_0.2.1_linux_amd64.tar.gz
 
 # Extract the archive
-tar xzf logchef_linux_amd64.tar.gz
+tar xzf logchef_0.2.1_linux_amd64.tar.gz
 
 # Make the binary executable
 chmod +x logchef
