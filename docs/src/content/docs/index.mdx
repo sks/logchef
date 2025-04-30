@@ -22,13 +22,11 @@ hero:
       variant: minimal
 ---
 
-import LOGCHEF from "../../../LOGCHEF.svg?raw";
-
-<Fragment set:html={LOGCHEF} />
+import LOGCHEF from "/logo.svg?raw";
 
 import { Card, CardGrid } from "@astrojs/starlight/components";
 
-## What is Logchef?
+<Fragment set:html={LOGCHEF} />
 
 Logchef is a dedicated log query and visualization interface built specifically for ClickHouse. It fills a critical gap in the ClickHouse ecosystem, providing a powerful log explorer without reinventing log collection or storage.
 
