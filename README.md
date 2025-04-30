@@ -1,6 +1,7 @@
 <a href="https://zerodha.tech"><img src="https://zerodha.tech/static/images/github-badge.svg" /></a>
 
-<h1 align="center">Logchef</h1>
+<p align="center"><img src="LOGCHEF.svg" alt="Logchef Logo" /></p>
+
 <p align="center">A modern, single binary, high-performance log analytics platform</p>
 
 <p align="center">
@@ -51,3 +52,7 @@ For comprehensive documentation, including setup guides, configuration options, 
 ## License
 
 Logchef is distributed under the terms of the AGPLv3 License.
+
+### Credits
+
+The Logchef logo was designed by [Namisha Katira](https://www.behance.net/katiranimi015d).
