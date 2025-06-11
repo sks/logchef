@@ -6,6 +6,8 @@ port = 8125
 host = "0.0.0.0"
 # URL of the frontend application
 frontend_url = "http://localhost:5173"  # Development frontend URL, empty in production
+# HTTP server timeout for requests
+http_server_timeout = "30s"
 
 # SQLite database configuration
 [sqlite]

@@ -51,6 +51,7 @@ export interface QueryParams {
   timezone?: string; // User's timezone identifier (e.g., 'America/New_York', 'UTC')
   start_time?: string; // ISO formatted start time
   end_time?: string;   // ISO formatted end time
+  query_timeout?: number; // Query timeout in seconds
 }
 
 export interface QueryStats {
@@ -112,8 +113,9 @@ export function prepareQueryParams(params: {
   window?: string;
   groupBy?: string;
   timezone?: string;
+  queryTimeout?: number;
 }): QueryParams {
-  const { query, limit = 100, window, groupBy, timezone } = params;
+  const { query, limit = 100, window, groupBy, timezone, queryTimeout } = params;
 
   // Use the raw SQL value as is - SQL transformation should happen before calling this function
   return {
@@ -121,7 +123,8 @@ export function prepareQueryParams(params: {
     limit,
     window,
     group_by: groupBy,
-    timezone
+    timezone,
+    query_timeout: queryTimeout
   };
 }
 
@@ -130,9 +133,14 @@ export const exploreApi = {
     if (!teamId) {
       throw new Error("Team ID is required for querying logs");
     }
+    
+    // Extract timeout from params and convert to axios options
+    const timeout = params.query_timeout || 30; // Default to 30 seconds
+    
     return apiClient.post<QueryResponse>(
       `/teams/${teamId}/sources/${sourceId}/logs/query`,
-      params
+      params,
+      { timeout }
     );
   },
 
@@ -152,9 +160,13 @@ export const exploreApi = {
       delete histogramParams.group_by;
     }
 
+    // Extract timeout from params
+    const timeout = params.query_timeout || 30; // Default to 30 seconds
+
     return apiClient.post<HistogramResponse>(
       `/teams/${teamId}/sources/${sourceId}/logs/histogram`,
-      histogramParams
+      histogramParams,
+      { timeout }
     );
   },
 

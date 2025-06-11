@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Button } from '@/components/ui/button'
-import { Play, RefreshCw, Share2, Keyboard, Eraser, AlertCircle } from 'lucide-vue-next'
+import { Play, RefreshCw, Share2, Keyboard, Eraser, AlertCircle, Clock } from 'lucide-vue-next'
 import { useToast } from '@/components/ui/toast'
 import { TOAST_DURATION } from '@/lib/constants'
 import { useExploreStore } from '@/stores/explore'
@@ -13,6 +13,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 interface Props {
   showExecuteControls?: boolean
@@ -37,6 +44,32 @@ const {
   canExecuteQuery,
   dirtyReason
 } = useQuery()
+
+// Query timeout options in seconds
+const timeoutOptions = [
+  { label: '10s', value: 10 },
+  { label: '30s', value: 30 },
+  { label: '1m', value: 60 },
+  { label: '2m', value: 120 },
+  { label: '5m', value: 300 },
+  { label: '10m', value: 600 },
+  { label: '15m', value: 900 },
+  { label: '30m', value: 1800 }
+]
+
+// Get current timeout or default to 30 seconds - handle as string for Select component
+const selectedTimeout = computed({
+  get: () => {
+    const timeout = exploreStore.queryTimeout || 30;
+    console.log('QueryControls: Getting timeout value:', timeout, 'returning as string:', timeout.toString());
+    return timeout.toString();
+  },
+  set: (value: string) => {
+    const numValue = parseInt(value, 10);
+    console.log('QueryControls: Setting timeout from string:', value, 'to number:', numValue);
+    exploreStore.setQueryTimeout(numValue);
+  }
+})
 
 // Enhanced tooltip content based on why the query is dirty
 // Track when last query was executed and when parameters were last changed
@@ -222,6 +255,32 @@ const clearEditor = () => {
           </TooltipTrigger>
           <TooltipContent side="bottom">
             <p>Clear Query</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+
+      <!-- Query Timeout Selector -->
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div class="flex items-center">
+              <Select v-model="selectedTimeout" :disabled="isExecutingQuery">
+                <SelectTrigger class="h-9 w-[80px] text-xs">
+                  <div class="flex items-center gap-1.5">
+                    <Clock class="h-3.5 w-3.5" />
+                    <SelectValue />
+                  </div>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem v-for="option in timeoutOptions" :key="option.value" :value="option.value.toString()">
+                    {{ option.label }}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            <p>Query timeout duration</p>
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>

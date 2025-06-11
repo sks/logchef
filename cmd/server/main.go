@@ -11,6 +11,8 @@ import (
 var (
 	// buildString is the build version information, set by linker flags during build.
 	buildString = "unknown"
+	// versionString is the version information, set by linker flags during build.
+	versionString = "unknown"
 )
 
 func main() {
@@ -28,6 +30,7 @@ func main() {
 		ConfigPath: *configPath,
 		WebFS:      getWebFS(),
 		BuildInfo:  buildString,
+		Version:    versionString,
 	}); err != nil {
 		log.Error("application error", "error", err)
 		os.Exit(1)

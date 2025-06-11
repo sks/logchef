@@ -5,6 +5,7 @@ import { authApi, type SessionResponse } from "@/api/auth";
 import router from "@/router";
 import { useBaseStore } from "./base";
 import { useApiQuery } from "@/composables/useApiQuery";
+import { useMetaStore } from "./meta";
 import type { APIErrorResponse } from "@/api/types";
 
 interface AuthState {
@@ -44,19 +45,25 @@ export const useAuthStore = defineStore("auth", () => {
         console.log("Initializing auth store...");
         state.data.value.isInitializing = true;
 
+        // Load server meta information first (it's a public endpoint)
+        const metaStore = useMetaStore();
+        await metaStore.loadMeta();
+
         const result = await state.callApi({
           apiCall: () => authApi.getSession(),
           showToast: false,
           operationKey: 'initialize',
-          onSuccess: (response) => {
-            state.data.value.user = response.user;
-            state.data.value.session = response.session;
-            // Mark that we've had a successful session for future reference
-            sessionStorage.setItem("hadPreviousSession", "true");
-            console.log("Auth initialized successfully:", {
-              user: user.value,
-              isAuthenticated: isAuthenticated.value,
-            });
+          onSuccess: (response: SessionResponse | null) => {
+            if (response) {
+              state.data.value.user = response.user;
+              state.data.value.session = response.session;
+              // Mark that we've had a successful session for future reference
+              sessionStorage.setItem("hadPreviousSession", "true");
+              console.log("Auth initialized successfully:", {
+                user: user.value,
+                isAuthenticated: isAuthenticated.value,
+              });
+            }
           },
           onError: () => {
             // Handle session not found gracefully
@@ -80,7 +87,7 @@ export const useAuthStore = defineStore("auth", () => {
   function clearState() {
     state.data.value.user = null;
     state.data.value.session = null;
-    
+
     // On manual logout, we should also clear the session flag
     // but we don't do this on auth failures to distinguish between first visit and actual expiry
     if (state.data.value.isInitialized) {

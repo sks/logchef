@@ -51,10 +51,22 @@ func (s *Server) handleQueryLogs(c *fiber.Ctx) error {
 		req.Limit = 100 // Consider making this configurable.
 	}
 
+	// Apply default timeout if not specified
+	if req.QueryTimeout == nil {
+		defaultTimeout := models.DefaultQueryTimeoutSeconds
+		req.QueryTimeout = &defaultTimeout
+	}
+
+	// Validate timeout
+	if err := models.ValidateQueryTimeout(req.QueryTimeout); err != nil {
+		return SendErrorWithType(c, fiber.StatusBadRequest, err.Error(), models.ValidationErrorType)
+	}
+
 	// Prepare parameters for the core query function.
 	params := clickhouse.LogQueryParams{
-		RawSQL: req.RawSQL,
-		Limit:  req.Limit,
+		RawSQL:       req.RawSQL,
+		Limit:        req.Limit,
+		QueryTimeout: req.QueryTimeout, // Always non-nil now
 	}
 	// StartTime, EndTime, and Timezone are no longer passed here;
 	// they are expected to be baked into the RawSQL by the frontend.
@@ -140,6 +152,20 @@ func (s *Server) handleGetHistogram(c *fiber.Ctx) error {
 	} else {
 		params.Timezone = "UTC"
 	}
+
+	// Apply default timeout if not specified
+	if req.QueryTimeout == nil {
+		defaultTimeout := models.DefaultQueryTimeoutSeconds
+		req.QueryTimeout = &defaultTimeout
+	}
+
+	// Validate timeout
+	if err := models.ValidateQueryTimeout(req.QueryTimeout); err != nil {
+		return SendErrorWithType(c, fiber.StatusBadRequest, err.Error(), models.ValidationErrorType)
+	}
+
+	// Pass the query timeout (always non-nil now)
+	params.QueryTimeout = req.QueryTimeout
 
 	// Execute histogram query via core function.
 	result, err := core.GetHistogramData(c.Context(), s.sqlite, s.clickhouse, s.log, sourceID, params)

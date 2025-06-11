@@ -31,6 +31,7 @@ type ServerOptions struct {
 	FS           http.FileSystem    // Filesystem for serving static assets (frontend).
 	Logger       *slog.Logger
 	BuildInfo    string
+	Version      string
 }
 
 // Server represents the core HTTP server, encapsulating the Fiber app instance
@@ -44,6 +45,7 @@ type Server struct {
 	fs           http.FileSystem
 	log          *slog.Logger
 	buildInfo    string
+	version      string
 }
 
 // @title LogChef API
@@ -100,6 +102,7 @@ func New(opts ServerOptions) *Server {
 		fs:           opts.FS,
 		log:          opts.Logger,
 		buildInfo:    opts.BuildInfo,
+		version:      opts.Version,
 	}
 
 	// Register all application routes.
@@ -117,6 +120,7 @@ func (s *Server) setupRoutes() {
 
 	// --- Public Routes ---
 	api.Get("/health", s.handleHealth)
+	api.Get("/meta", s.handleGetMeta)
 
 	// --- Authentication Routes ---
 	api.Get("/auth/login", s.handleLogin)

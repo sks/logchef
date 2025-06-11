@@ -14,6 +14,8 @@ import (
 type LogQueryParams struct {
 	Limit  int
 	RawSQL string
+	// Query execution timeout in seconds. If not specified, uses default timeout.
+	QueryTimeout *int
 }
 
 // LogQueryResult represents the structured result of a log query.
@@ -71,6 +73,8 @@ type HistogramParams struct {
 	Query    string // Raw SQL query to use as base for histogram
 	GroupBy  string // Optional: Field to group by for segmented histograms.
 	Timezone string // Optional: Timezone identifier for time-based operations.
+	// Query execution timeout in seconds. If not specified, uses default timeout.
+	QueryTimeout *int
 }
 
 // HistogramData represents a single time bucket and its log count in a histogram.
@@ -88,10 +92,17 @@ type HistogramResult struct {
 
 // GetHistogramData generates histogram data by grouping log counts into time buckets.
 // It uses the provided raw SQL as the base query and applies time window aggregation.
+// Timeout is always applied.
 func (c *Client) GetHistogramData(ctx context.Context, tableName, timestampField string, params HistogramParams) (*HistogramResult, error) {
 	// Validate query parameter
 	if params.Query == "" {
 		return nil, fmt.Errorf("query parameter is required for histogram data")
+	}
+
+	// Ensure timeout is always set
+	if params.QueryTimeout == nil {
+		defaultTimeout := DefaultQueryTimeout
+		params.QueryTimeout = &defaultTimeout
 	}
 
 	// Get timezone or default to UTC
@@ -204,10 +215,11 @@ func (c *Client) GetHistogramData(ctx context.Context, tableName, timestampField
 
 	c.logger.Debug("Executing histogram query",
 		"query_length", len(query),
-		"has_time_filter", len(matches) >= 5)
+		"has_time_filter", len(matches) >= 5,
+		"timeout_seconds", *params.QueryTimeout)
 
-	// Execute the query
-	result, err := c.Query(ctx, query)
+	// Execute the query with timeout (always applied)
+	result, err := c.QueryWithTimeout(ctx, query, params.QueryTimeout)
 	if err != nil {
 		c.logger.Error("failed to execute histogram query", "error", err, "table", tableName)
 		return nil, fmt.Errorf("failed to execute histogram query: %w", err)

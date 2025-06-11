@@ -25,9 +25,10 @@ type Config struct {
 
 // ServerConfig contains HTTP server settings
 type ServerConfig struct {
-	Port        int    `koanf:"port"`
-	Host        string `koanf:"host"`
-	FrontendURL string `koanf:"frontend_url"`
+	Port              int           `koanf:"port"`
+	Host              string        `koanf:"host"`
+	FrontendURL       string        `koanf:"frontend_url"`
+	HTTPServerTimeout time.Duration `koanf:"http_server_timeout"`
 }
 
 // SQLiteConfig contains SQLite database settings

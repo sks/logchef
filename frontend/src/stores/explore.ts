@@ -130,6 +130,8 @@ export interface ExploreState {
   histogramError: string | null;
   // Histogram granularity
   histogramGranularity: string | null;
+  // Query timeout in seconds
+  queryTimeout: number;
 }
 
 const DEFAULT_QUERY_STATS: QueryStats = {
@@ -165,6 +167,7 @@ export const useExploreStore = defineStore("explore", () => {
     isLoadingHistogram: false,
     histogramError: null,
     histogramGranularity: null,
+    queryTimeout: 30, // Default to 30 seconds
   });
 
   // Getters
@@ -443,6 +446,17 @@ export const useExploreStore = defineStore("explore", () => {
     }
   }
 
+  // Set query timeout
+  function setQueryTimeout(timeout: number) {
+    console.log('Explore store: setQueryTimeout called with:', timeout);
+    if (timeout > 0 && timeout <= 3600) { // Max 1 hour timeout
+      console.log('Explore store: Setting queryTimeout from', state.data.value.queryTimeout, 'to', timeout);
+      state.data.value.queryTimeout = timeout;
+    } else {
+      console.log('Explore store: Invalid timeout value:', timeout, 'keeping current:', state.data.value.queryTimeout);
+    }
+  }
+
   // Set LogchefQL code
   function setLogchefqlCode(code: string) {
     state.data.value.logchefqlCode = code;
@@ -717,7 +731,8 @@ export const useExploreStore = defineStore("explore", () => {
       // Prepare parameters for the API call
       const params: QueryParams = {
         raw_sql: '', // Will be set below
-        limit: state.data.value.limit
+        limit: state.data.value.limit,
+        query_timeout: state.data.value.queryTimeout
       };
 
       // Handle empty SQL for both modes
@@ -1137,6 +1152,7 @@ export const useExploreStore = defineStore("explore", () => {
         window: granularity || calculateOptimalGranularity(),
         timezone: state.data.value.selectedTimezoneIdentifier || undefined,
         group_by: state.data.value.groupByField === "__none__" || state.data.value.groupByField === null ? undefined : state.data.value.groupByField,
+        query_timeout: state.data.value.queryTimeout,
       };
 
       console.log("Explore store: Histogram request params:", {
@@ -1248,6 +1264,7 @@ export const useExploreStore = defineStore("explore", () => {
     queryStats: computed(() => state.data.value.queryStats),
     sourceId: computed(() => state.data.value.sourceId),
     limit: computed(() => state.data.value.limit),
+    queryTimeout: computed(() => state.data.value.queryTimeout),
     timeRange: computed(() => state.data.value.timeRange),
     selectedRelativeTime: computed(() => state.data.value.selectedRelativeTime),
     filterConditions: computed(() => state.data.value.filterConditions),
@@ -1288,6 +1305,7 @@ export const useExploreStore = defineStore("explore", () => {
     setSource,
     setTimeConfiguration,
     setLimit,
+    setQueryTimeout,
     setFilterConditions,
     setRawSql,
     setActiveMode,

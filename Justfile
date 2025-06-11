@@ -8,8 +8,8 @@ build_time := `date -u +%Y%m%dT%H%M%SZ`
 # Build info string for embedding
 build_info := version + '-commit-' + last_commit + '-build-' + build_time
 
-# Build flags - use build info
-ldflags := "-s -w -X 'main.buildString={{build_info}}'"
+# Build flags - pass both version and build info
+ldflags := "-s -w -X 'main.buildString=" + build_info + "' -X 'main.versionString=" + version + "'"
 
 # Binary output
 bin := "bin/logchef.bin"
