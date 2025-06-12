@@ -39,6 +39,10 @@ admin_emails = ["admin@logchef.internal"]
 session_duration = "8h"
 # Maximum number of concurrent sessions per user
 max_concurrent_sessions = 1
+# Secret key for API token hashing (generate with: openssl rand -hex 32)
+api_token_secret = "5679649c50fddda837449b77d9983ab5f8dba65878897e968a74e7061bf47677"
+# Default API token expiration (empty for no expiration)
+default_token_expiry = "2160h"  # 90 days = 90 * 24 = 2160 hours
 
 # Logging configuration
 [logging]

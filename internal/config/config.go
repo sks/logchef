@@ -64,6 +64,8 @@ type AuthConfig struct {
 	AdminEmails           []string      `koanf:"admin_emails"`
 	SessionDuration       time.Duration `koanf:"session_duration"`
 	MaxConcurrentSessions int           `koanf:"max_concurrent_sessions"`
+	APITokenSecret        string        `koanf:"api_token_secret"`
+	DefaultTokenExpiry    time.Duration `koanf:"default_token_expiry"`
 }
 
 // LoggingConfig contains logging settings
@@ -127,6 +129,14 @@ func Load(path string) (*Config, error) {
 	// Validate required configurations
 	if len(cfg.Auth.AdminEmails) == 0 {
 		return nil, fmt.Errorf("admin_emails is required in auth configuration (either in file or %sAUTH__ADMIN_EMAILS)", envPrefix)
+	}
+	
+	// Validate API token secret
+	if cfg.Auth.APITokenSecret == "" {
+		return nil, fmt.Errorf("api_token_secret is required in auth configuration (either in file or %sAUTH__API_TOKEN_SECRET)", envPrefix)
+	}
+	if len(cfg.Auth.APITokenSecret) < 32 {
+		return nil, fmt.Errorf("api_token_secret must be at least 32 characters long for security")
 	}
 
 	// Validate OIDC configuration

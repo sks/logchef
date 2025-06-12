@@ -5,6 +5,7 @@ import (
 	"github.com/mr-karan/logchef/pkg/models"
 
 	"errors"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -27,10 +28,53 @@ func isUserAdmin(c *fiber.Ctx) bool {
 	return user.Role == models.UserRoleAdmin
 }
 
-// requireAuth is middleware that ensures the request includes a valid, non-expired session cookie.
-// It validates the session using core logic, retrieves the associated user, and stores
-// both the user and session information in the request context (c.Locals) for subsequent handlers.
+// requireAuth is middleware that ensures the request includes valid authentication.
+// It supports both API token authentication (Authorization: Bearer <token>) and 
+// session-based authentication (session cookie). It validates the authentication,
+// retrieves the associated user, and stores the user information in the request 
+// context (c.Locals) for subsequent handlers.
 func (s *Server) requireAuth(c *fiber.Ctx) error {
+	// Try API token authentication first
+	authHeader := c.Get("Authorization")
+	if authHeader != "" && strings.HasPrefix(authHeader, "Bearer ") {
+		return s.authenticateWithToken(c, authHeader)
+	}
+	
+	// Fall back to session-based authentication
+	return s.authenticateWithSession(c)
+}
+
+// authenticateWithToken handles API token authentication
+func (s *Server) authenticateWithToken(c *fiber.Ctx, authHeader string) error {
+	// Extract token from "Bearer <token>"
+	token := strings.TrimPrefix(authHeader, "Bearer ")
+	if token == authHeader || token == "" {
+		return SendErrorWithType(c, fiber.StatusForbidden, "Invalid Authorization header format", models.AuthenticationErrorType)
+	}
+
+	// Authenticate token and get associated user
+	user, apiToken, err := core.AuthenticateAPIToken(c.Context(), s.sqlite, s.log, &s.config.Auth, token)
+	if err != nil {
+		// Handle specific token errors
+		if errors.Is(err, core.ErrInvalidToken) || errors.Is(err, core.ErrTokenExpired) {
+			return SendErrorWithType(c, fiber.StatusForbidden, "Invalid or expired token", models.AuthenticationErrorType)
+		}
+		
+		s.log.Error("error authenticating API token", "error", err)
+		return SendErrorWithType(c, fiber.StatusInternalServerError, "Error validating token", models.GeneralErrorType)
+	}
+
+	// Store user and token info in request context
+	c.Locals("user", user)
+	c.Locals("api_token", apiToken)
+	c.Locals("auth_method", "token")
+
+	s.log.Debug("API token authentication successful", "user_id", user.ID, "token_id", apiToken.ID)
+	return c.Next()
+}
+
+// authenticateWithSession handles session-based authentication (existing logic)
+func (s *Server) authenticateWithSession(c *fiber.Ctx) error {
 	// Retrieve session ID from cookie.
 	sessionIDStr := c.Cookies(sessionCookieName)
 	if sessionIDStr == "" {
@@ -64,7 +108,9 @@ func (s *Server) requireAuth(c *fiber.Ctx) error {
 	// Store user and session in request context for downstream handlers.
 	c.Locals("user", user)
 	c.Locals("session", session)
+	c.Locals("auth_method", "session")
 
+	s.log.Debug("Session authentication successful", "user_id", user.ID, "session_id", sessionID)
 	return c.Next()
 }
 

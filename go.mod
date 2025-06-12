@@ -5,26 +5,27 @@ go 1.24
 toolchain go1.24.2
 
 require (
-	github.com/AfterShip/clickhouse-sql-parser v0.4.9
-	github.com/ClickHouse/clickhouse-go/v2 v2.34.0
+	github.com/AfterShip/clickhouse-sql-parser v0.4.10
+	github.com/ClickHouse/clickhouse-go/v2 v2.36.0
 	github.com/coreos/go-oidc/v3 v3.14.1
-	github.com/gofiber/fiber/v2 v2.52.6
+	github.com/gofiber/fiber/v2 v2.52.8
 	github.com/gofiber/swagger v1.1.1
 	github.com/golang-migrate/migrate/v4 v4.18.3
 	github.com/google/uuid v1.6.0
 	github.com/knadh/koanf/parsers/toml v0.1.0
 	github.com/knadh/koanf/providers/env v1.1.0
 	github.com/knadh/koanf/providers/file v1.2.0
-	github.com/knadh/koanf/v2 v2.2.0
+	github.com/knadh/koanf/v2 v2.2.1
 	github.com/mattn/go-sqlite3 v1.14.28
-	github.com/sashabaranov/go-openai v1.40.0
+	github.com/sashabaranov/go-openai v1.40.1
 	github.com/swaggo/swag v1.16.4
+	golang.org/x/crypto v0.39.0
 	golang.org/x/oauth2 v0.30.0
-	modernc.org/sqlite v1.37.0
+	modernc.org/sqlite v1.38.0
 )
 
 require (
-	github.com/ClickHouse/ch-go v0.65.1 // indirect
+	github.com/ClickHouse/ch-go v0.66.0 // indirect
 	github.com/KyleBanks/depth v1.2.1 // indirect
 	github.com/andybalholm/brotli v1.1.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
@@ -59,14 +60,14 @@ require (
 	github.com/swaggo/files/v2 v2.0.2 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasthttp v1.62.0 // indirect
-	go.opentelemetry.io/otel v1.35.0 // indirect
-	go.opentelemetry.io/otel/trace v1.35.0 // indirect
+	go.opentelemetry.io/otel v1.36.0 // indirect
+	go.opentelemetry.io/otel/trace v1.36.0 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
-	golang.org/x/exp v0.0.0-20250506013437-ce4c2cf36ca6 // indirect
+	golang.org/x/exp v0.0.0-20250606033433-dcc06ee1d476 // indirect
 	golang.org/x/sys v0.33.0 // indirect
-	golang.org/x/tools v0.33.0 // indirect
+	golang.org/x/tools v0.34.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	modernc.org/libc v1.65.6 // indirect
+	modernc.org/libc v1.65.10 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
-	modernc.org/memory v1.10.0 // indirect
+	modernc.org/memory v1.11.0 // indirect
 )

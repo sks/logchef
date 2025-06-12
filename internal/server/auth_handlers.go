@@ -252,24 +252,41 @@ func (s *Server) handleLogout(c *fiber.Ctx) error {
 	return SendSuccess(c, fiber.StatusOK, nil) // Send simple success response.
 }
 
-// handleGetCurrentUser retrieves information about the currently authenticated user and their session.
-// It relies on the requireAuth middleware to populate user and session details in the context.
+// handleGetCurrentUser retrieves information about the currently authenticated user.
+// It relies on the requireAuth middleware to populate user details in the context.
+// Supports both session-based and API token authentication.
 func (s *Server) handleGetCurrentUser(c *fiber.Ctx) error {
 	user := c.Locals("user").(*models.User)
-	session := c.Locals("session").(*models.Session)
-
-	if user == nil || session == nil {
-		s.log.Error("user or session missing from context in handleGetCurrentUser")
-		return SendErrorWithType(c, fiber.StatusUnauthorized, "Session data unavailable", models.AuthenticationErrorType)
+	if user == nil {
+		s.log.Error("user missing from context in handleGetCurrentUser")
+		return SendErrorWithType(c, fiber.StatusUnauthorized, "Authentication data unavailable", models.AuthenticationErrorType)
 	}
 
-	// Return relevant user and session info (e.g., exclude sensitive session ID).
-	return SendSuccess(c, fiber.StatusOK, fiber.Map{
-		"user": user,
-		"session": fiber.Map{
+	authMethod := c.Locals("auth_method")
+	response := fiber.Map{
+		"user":        user,
+		"auth_method": authMethod,
+	}
+
+	// Include session info if authenticated via session
+	if session, ok := c.Locals("session").(*models.Session); ok && session != nil {
+		response["session"] = fiber.Map{
 			"expires_at": session.ExpiresAt,
-		},
-	})
+		}
+	}
+
+	// Include API token info if authenticated via token (without sensitive data)
+	if apiToken, ok := c.Locals("api_token").(*models.APIToken); ok && apiToken != nil {
+		response["api_token"] = fiber.Map{
+			"id":           apiToken.ID,
+			"name":         apiToken.Name,
+			"prefix":       apiToken.Prefix,
+			"last_used_at": apiToken.LastUsedAt,
+			"created_at":   apiToken.CreatedAt,
+		}
+	}
+
+	return SendSuccess(c, fiber.StatusOK, response)
 }
 
 // min is a helper, consider moving to a utility package if used elsewhere.

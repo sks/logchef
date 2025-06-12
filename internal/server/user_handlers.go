@@ -2,6 +2,8 @@ package server
 
 import (
 	"errors"
+	"strconv"
+	"time"
 
 	"github.com/mr-karan/logchef/internal/core"
 	"github.com/mr-karan/logchef/pkg/models"
@@ -216,4 +218,93 @@ func (s *Server) handleListCurrentUserTeams(c *fiber.Ctx) error {
 	}
 
 	return SendSuccess(c, fiber.StatusOK, userTeamDetails)
+}
+
+// --- API Token Management Handlers ---
+
+// handleListAPITokens lists all API tokens for the authenticated user.
+// URL: GET /api/v1/me/tokens
+// Requires: User authentication (requireAuth middleware)
+func (s *Server) handleListAPITokens(c *fiber.Ctx) error {
+	// User should be in context from auth middleware
+	user, ok := c.Locals("user").(*models.User)
+	if !ok || user == nil {
+		s.log.Error("user not found in context despite requireAuth middleware")
+		return SendError(c, fiber.StatusInternalServerError, "Error retrieving user context")
+	}
+
+	tokens, err := core.ListAPITokensForUser(c.Context(), s.sqlite, user.ID)
+	if err != nil {
+		s.log.Error("failed to list API tokens for user", "error", err, "user_id", user.ID)
+		return SendError(c, fiber.StatusInternalServerError, "Error listing API tokens")
+	}
+
+	return SendSuccess(c, fiber.StatusOK, tokens)
+}
+
+// handleCreateAPIToken creates a new API token for the authenticated user.
+// URL: POST /api/v1/me/tokens
+// Requires: User authentication (requireAuth middleware)
+func (s *Server) handleCreateAPIToken(c *fiber.Ctx) error {
+	// User should be in context from auth middleware
+	user, ok := c.Locals("user").(*models.User)
+	if !ok || user == nil {
+		s.log.Error("user not found in context despite requireAuth middleware")
+		return SendError(c, fiber.StatusInternalServerError, "Error retrieving user context")
+	}
+
+	var req struct {
+		Name      string     `json:"name"`
+		ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	}
+
+	if err := c.BodyParser(&req); err != nil {
+		return SendError(c, fiber.StatusBadRequest, "Invalid request body")
+	}
+
+	response, err := core.CreateAPIToken(c.Context(), s.sqlite, s.log, &s.config.Auth, user.ID, req.Name, req.ExpiresAt)
+	if err != nil {
+		// Handle specific error types from core
+		if valErr, ok := err.(*core.ValidationError); ok {
+			return SendError(c, fiber.StatusBadRequest, valErr.Error())
+		}
+
+		s.log.Error("failed to create API token", "error", err, "user_id", user.ID)
+		return SendError(c, fiber.StatusInternalServerError, "Error creating API token")
+	}
+
+	return SendSuccess(c, fiber.StatusCreated, response)
+}
+
+// handleDeleteAPIToken deletes an API token owned by the authenticated user.
+// URL: DELETE /api/v1/me/tokens/:tokenID
+// Requires: User authentication (requireAuth middleware)
+func (s *Server) handleDeleteAPIToken(c *fiber.Ctx) error {
+	// User should be in context from auth middleware
+	user, ok := c.Locals("user").(*models.User)
+	if !ok || user == nil {
+		s.log.Error("user not found in context despite requireAuth middleware")
+		return SendError(c, fiber.StatusInternalServerError, "Error retrieving user context")
+	}
+
+	tokenIDStr := c.Params("tokenID")
+	if tokenIDStr == "" {
+		return SendError(c, fiber.StatusBadRequest, "Token ID is required")
+	}
+
+	tokenID, err := strconv.Atoi(tokenIDStr)
+	if err != nil {
+		return SendError(c, fiber.StatusBadRequest, "Invalid token ID format")
+	}
+
+	if err := core.DeleteAPIToken(c.Context(), s.sqlite, s.log, user.ID, tokenID); err != nil {
+		if errors.Is(err, core.ErrAPITokenNotFound) {
+			return SendError(c, fiber.StatusNotFound, "API token not found")
+		}
+
+		s.log.Error("failed to delete API token", "error", err, "token_id", tokenID, "user_id", user.ID)
+		return SendError(c, fiber.StatusInternalServerError, "Error deleting API token")
+	}
+
+	return SendSuccess(c, fiber.StatusOK, fiber.Map{"message": "API token deleted successfully"})
 }

@@ -82,6 +82,36 @@ func (q *Queries) CountUserSessions(ctx context.Context, arg CountUserSessionsPa
 	return count, err
 }
 
+const createAPIToken = `-- name: CreateAPIToken :one
+
+INSERT INTO api_tokens (user_id, name, token_hash, prefix, expires_at)
+VALUES (?, ?, ?, ?, ?)
+RETURNING id
+`
+
+type CreateAPITokenParams struct {
+	UserID    int64        `json:"user_id"`
+	Name      string       `json:"name"`
+	TokenHash string       `json:"token_hash"`
+	Prefix    string       `json:"prefix"`
+	ExpiresAt sql.NullTime `json:"expires_at"`
+}
+
+// API Tokens
+// Create a new API token
+func (q *Queries) CreateAPIToken(ctx context.Context, arg CreateAPITokenParams) (int64, error) {
+	row := q.queryRow(ctx, q.createAPITokenStmt, createAPIToken,
+		arg.UserID,
+		arg.Name,
+		arg.TokenHash,
+		arg.Prefix,
+		arg.ExpiresAt,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const createSession = `-- name: CreateSession :exec
 
 INSERT INTO sessions (id, user_id, expires_at, created_at)
@@ -233,6 +263,31 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (int64, 
 	return id, err
 }
 
+const deleteAPIToken = `-- name: DeleteAPIToken :exec
+DELETE FROM api_tokens WHERE id = ? AND user_id = ?
+`
+
+type DeleteAPITokenParams struct {
+	ID     int64 `json:"id"`
+	UserID int64 `json:"user_id"`
+}
+
+// Delete an API token by ID and user ID (ensure user owns the token)
+func (q *Queries) DeleteAPIToken(ctx context.Context, arg DeleteAPITokenParams) error {
+	_, err := q.exec(ctx, q.deleteAPITokenStmt, deleteAPIToken, arg.ID, arg.UserID)
+	return err
+}
+
+const deleteExpiredAPITokens = `-- name: DeleteExpiredAPITokens :exec
+DELETE FROM api_tokens WHERE expires_at IS NOT NULL AND expires_at < datetime('now')
+`
+
+// Delete all expired API tokens
+func (q *Queries) DeleteExpiredAPITokens(ctx context.Context) error {
+	_, err := q.exec(ctx, q.deleteExpiredAPITokensStmt, deleteExpiredAPITokens)
+	return err
+}
+
 const deleteSession = `-- name: DeleteSession :exec
 DELETE FROM sessions WHERE id = ?
 `
@@ -298,6 +353,50 @@ DELETE FROM sessions WHERE user_id = ?
 func (q *Queries) DeleteUserSessions(ctx context.Context, userID int64) error {
 	_, err := q.exec(ctx, q.deleteUserSessionsStmt, deleteUserSessions, userID)
 	return err
+}
+
+const getAPIToken = `-- name: GetAPIToken :one
+SELECT id, user_id, name, token_hash, prefix, last_used_at, expires_at, created_at, updated_at FROM api_tokens WHERE id = ?
+`
+
+// Get an API token by ID
+func (q *Queries) GetAPIToken(ctx context.Context, id int64) (ApiToken, error) {
+	row := q.queryRow(ctx, q.getAPITokenStmt, getAPIToken, id)
+	var i ApiToken
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Name,
+		&i.TokenHash,
+		&i.Prefix,
+		&i.LastUsedAt,
+		&i.ExpiresAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getAPITokenByHash = `-- name: GetAPITokenByHash :one
+SELECT id, user_id, name, token_hash, prefix, last_used_at, expires_at, created_at, updated_at FROM api_tokens WHERE token_hash = ?
+`
+
+// Get an API token by its hash (for authentication)
+func (q *Queries) GetAPITokenByHash(ctx context.Context, tokenHash string) (ApiToken, error) {
+	row := q.queryRow(ctx, q.getAPITokenByHashStmt, getAPITokenByHash, tokenHash)
+	var i ApiToken
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Name,
+		&i.TokenHash,
+		&i.Prefix,
+		&i.LastUsedAt,
+		&i.ExpiresAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const getSession = `-- name: GetSession :one
@@ -505,6 +604,44 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const listAPITokensForUser = `-- name: ListAPITokensForUser :many
+SELECT id, user_id, name, token_hash, prefix, last_used_at, expires_at, created_at, updated_at FROM api_tokens WHERE user_id = ? ORDER BY created_at DESC
+`
+
+// List all API tokens for a user
+func (q *Queries) ListAPITokensForUser(ctx context.Context, userID int64) ([]ApiToken, error) {
+	rows, err := q.query(ctx, q.listAPITokensForUserStmt, listAPITokensForUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ApiToken{}
+	for rows.Next() {
+		var i ApiToken
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Name,
+			&i.TokenHash,
+			&i.Prefix,
+			&i.LastUsedAt,
+			&i.ExpiresAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listQueriesByTeamAndSource = `-- name: ListQueriesByTeamAndSource :many
@@ -1043,6 +1180,19 @@ func (q *Queries) TeamHasSource(ctx context.Context, arg TeamHasSourceParams) (i
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const updateAPITokenLastUsed = `-- name: UpdateAPITokenLastUsed :exec
+UPDATE api_tokens
+SET last_used_at = datetime('now'),
+    updated_at = datetime('now')
+WHERE id = ?
+`
+
+// Update the last used timestamp for an API token
+func (q *Queries) UpdateAPITokenLastUsed(ctx context.Context, id int64) error {
+	_, err := q.exec(ctx, q.updateAPITokenLastUsedStmt, updateAPITokenLastUsed, id)
+	return err
 }
 
 const updateSource = `-- name: UpdateSource :exec
