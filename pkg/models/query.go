@@ -2,22 +2,57 @@ package models
 
 import "time"
 
+// Timeout constants for query execution
+const (
+	// DefaultQueryTimeoutSeconds is the default max_execution_time if not specified
+	DefaultQueryTimeoutSeconds = 60
+	// MaxQueryTimeoutSeconds is the maximum allowed timeout to prevent resource abuse
+	MaxQueryTimeoutSeconds = 3600 // 1 hour
+)
+
+// ValidateQueryTimeout validates that a query timeout is within acceptable bounds
+func ValidateQueryTimeout(timeout *int) error {
+	if timeout == nil {
+		return nil // No timeout specified is valid
+	}
+	if *timeout <= 0 {
+		return ErrInvalidTimeout{Message: "Query timeout must be a positive number"}
+	}
+	if *timeout > MaxQueryTimeoutSeconds {
+		return ErrInvalidTimeout{Message: "Query timeout cannot exceed 300 seconds"}
+	}
+	return nil
+}
+
+// ErrInvalidTimeout represents a query timeout validation error
+type ErrInvalidTimeout struct {
+	Message string
+}
+
+func (e ErrInvalidTimeout) Error() string {
+	return e.Message
+}
+
 // APIQueryRequest represents the request payload for the standard log querying endpoint.
 type APIQueryRequest struct {
 	Limit  int    `json:"limit"`
 	RawSQL string `json:"raw_sql"`
+	// Query execution timeout in seconds. If not specified, uses default timeout.
+	QueryTimeout *int `json:"query_timeout,omitempty"`
 	// Sort and other general query params could be added here if needed later.
 }
 
 // APIHistogramRequest represents the request payload for the histogram endpoint.
 type APIHistogramRequest struct {
-	StartTimestamp int64  `json:"start_timestamp,omitempty"` // Kept for histogram, optional otherwise
-	EndTimestamp   int64  `json:"end_timestamp,omitempty"`   // Kept for histogram, optional otherwise
+	StartTimestamp int64  `json:"start_timestamp,omitempty"` // Legacy - Unix timestamp in milliseconds
+	EndTimestamp   int64  `json:"end_timestamp,omitempty"`   // Legacy - Unix timestamp in milliseconds
 	Limit          int    `json:"limit"`                     // Limit might influence histogram sampling/performance
 	RawSQL         string `json:"raw_sql"`                   // Contains non-time filters
 	Window         string `json:"window,omitempty"`          // For histogram queries: time window size like "1m", "5m", "1h"
 	GroupBy        string `json:"group_by,omitempty"`        // For histogram queries: field to group by
 	Timezone       string `json:"timezone,omitempty"`        // Kept for histogram, optional otherwise
+	// Query execution timeout in seconds. If not specified, uses default timeout.
+	QueryTimeout *int `json:"query_timeout,omitempty"`
 }
 
 // LogQueryResult represents the result of a log query
@@ -125,4 +160,15 @@ type SavedQuery struct {
 	CreatedBy   UserID    `json:"created_by" db:"created_by"`
 	CreatedAt   time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
+}
+
+// GenerateSQLRequest defines the request body for SQL generation from natural language.
+type GenerateSQLRequest struct {
+	NaturalLanguageQuery string `json:"natural_language_query" validate:"required"`
+	CurrentQuery         string `json:"current_query,omitempty"` // Optional current query for context
+}
+
+// GenerateSQLResponse defines the successful response for SQL generation.
+type GenerateSQLResponse struct {
+	SQLQuery string `json:"sql_query"`
 }

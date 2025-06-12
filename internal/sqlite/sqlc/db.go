@@ -36,6 +36,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.countUserSessionsStmt, err = db.PrepareContext(ctx, countUserSessions); err != nil {
 		return nil, fmt.Errorf("error preparing query CountUserSessions: %w", err)
 	}
+	if q.createAPITokenStmt, err = db.PrepareContext(ctx, createAPIToken); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateAPIToken: %w", err)
+	}
 	if q.createSessionStmt, err = db.PrepareContext(ctx, createSession); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateSession: %w", err)
 	}
@@ -50,6 +53,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.createUserStmt, err = db.PrepareContext(ctx, createUser); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateUser: %w", err)
+	}
+	if q.deleteAPITokenStmt, err = db.PrepareContext(ctx, deleteAPIToken); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteAPIToken: %w", err)
+	}
+	if q.deleteExpiredAPITokensStmt, err = db.PrepareContext(ctx, deleteExpiredAPITokens); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteExpiredAPITokens: %w", err)
 	}
 	if q.deleteSessionStmt, err = db.PrepareContext(ctx, deleteSession); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteSession: %w", err)
@@ -68,6 +77,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.deleteUserSessionsStmt, err = db.PrepareContext(ctx, deleteUserSessions); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteUserSessions: %w", err)
+	}
+	if q.getAPITokenStmt, err = db.PrepareContext(ctx, getAPIToken); err != nil {
+		return nil, fmt.Errorf("error preparing query GetAPIToken: %w", err)
+	}
+	if q.getAPITokenByHashStmt, err = db.PrepareContext(ctx, getAPITokenByHash); err != nil {
+		return nil, fmt.Errorf("error preparing query GetAPITokenByHash: %w", err)
 	}
 	if q.getSessionStmt, err = db.PrepareContext(ctx, getSession); err != nil {
 		return nil, fmt.Errorf("error preparing query GetSession: %w", err)
@@ -95,6 +110,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getUserByEmailStmt, err = db.PrepareContext(ctx, getUserByEmail); err != nil {
 		return nil, fmt.Errorf("error preparing query GetUserByEmail: %w", err)
+	}
+	if q.listAPITokensForUserStmt, err = db.PrepareContext(ctx, listAPITokensForUser); err != nil {
+		return nil, fmt.Errorf("error preparing query ListAPITokensForUser: %w", err)
 	}
 	if q.listQueriesByTeamAndSourceStmt, err = db.PrepareContext(ctx, listQueriesByTeamAndSource); err != nil {
 		return nil, fmt.Errorf("error preparing query ListQueriesByTeamAndSource: %w", err)
@@ -137,6 +155,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.teamHasSourceStmt, err = db.PrepareContext(ctx, teamHasSource); err != nil {
 		return nil, fmt.Errorf("error preparing query TeamHasSource: %w", err)
+	}
+	if q.updateAPITokenLastUsedStmt, err = db.PrepareContext(ctx, updateAPITokenLastUsed); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateAPITokenLastUsed: %w", err)
 	}
 	if q.updateSourceStmt, err = db.PrepareContext(ctx, updateSource); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateSource: %w", err)
@@ -181,6 +202,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing countUserSessionsStmt: %w", cerr)
 		}
 	}
+	if q.createAPITokenStmt != nil {
+		if cerr := q.createAPITokenStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createAPITokenStmt: %w", cerr)
+		}
+	}
 	if q.createSessionStmt != nil {
 		if cerr := q.createSessionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createSessionStmt: %w", cerr)
@@ -204,6 +230,16 @@ func (q *Queries) Close() error {
 	if q.createUserStmt != nil {
 		if cerr := q.createUserStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createUserStmt: %w", cerr)
+		}
+	}
+	if q.deleteAPITokenStmt != nil {
+		if cerr := q.deleteAPITokenStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteAPITokenStmt: %w", cerr)
+		}
+	}
+	if q.deleteExpiredAPITokensStmt != nil {
+		if cerr := q.deleteExpiredAPITokensStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteExpiredAPITokensStmt: %w", cerr)
 		}
 	}
 	if q.deleteSessionStmt != nil {
@@ -234,6 +270,16 @@ func (q *Queries) Close() error {
 	if q.deleteUserSessionsStmt != nil {
 		if cerr := q.deleteUserSessionsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deleteUserSessionsStmt: %w", cerr)
+		}
+	}
+	if q.getAPITokenStmt != nil {
+		if cerr := q.getAPITokenStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getAPITokenStmt: %w", cerr)
+		}
+	}
+	if q.getAPITokenByHashStmt != nil {
+		if cerr := q.getAPITokenByHashStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getAPITokenByHashStmt: %w", cerr)
 		}
 	}
 	if q.getSessionStmt != nil {
@@ -279,6 +325,11 @@ func (q *Queries) Close() error {
 	if q.getUserByEmailStmt != nil {
 		if cerr := q.getUserByEmailStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getUserByEmailStmt: %w", cerr)
+		}
+	}
+	if q.listAPITokensForUserStmt != nil {
+		if cerr := q.listAPITokensForUserStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listAPITokensForUserStmt: %w", cerr)
 		}
 	}
 	if q.listQueriesByTeamAndSourceStmt != nil {
@@ -349,6 +400,11 @@ func (q *Queries) Close() error {
 	if q.teamHasSourceStmt != nil {
 		if cerr := q.teamHasSourceStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing teamHasSourceStmt: %w", cerr)
+		}
+	}
+	if q.updateAPITokenLastUsedStmt != nil {
+		if cerr := q.updateAPITokenLastUsedStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateAPITokenLastUsedStmt: %w", cerr)
 		}
 	}
 	if q.updateSourceStmt != nil {
@@ -424,17 +480,22 @@ type Queries struct {
 	addTeamSourceStmt              *sql.Stmt
 	countAdminUsersStmt            *sql.Stmt
 	countUserSessionsStmt          *sql.Stmt
+	createAPITokenStmt             *sql.Stmt
 	createSessionStmt              *sql.Stmt
 	createSourceStmt               *sql.Stmt
 	createTeamStmt                 *sql.Stmt
 	createTeamSourceQueryStmt      *sql.Stmt
 	createUserStmt                 *sql.Stmt
+	deleteAPITokenStmt             *sql.Stmt
+	deleteExpiredAPITokensStmt     *sql.Stmt
 	deleteSessionStmt              *sql.Stmt
 	deleteSourceStmt               *sql.Stmt
 	deleteTeamStmt                 *sql.Stmt
 	deleteTeamSourceQueryStmt      *sql.Stmt
 	deleteUserStmt                 *sql.Stmt
 	deleteUserSessionsStmt         *sql.Stmt
+	getAPITokenStmt                *sql.Stmt
+	getAPITokenByHashStmt          *sql.Stmt
 	getSessionStmt                 *sql.Stmt
 	getSourceStmt                  *sql.Stmt
 	getSourceByNameStmt            *sql.Stmt
@@ -444,6 +505,7 @@ type Queries struct {
 	getTeamSourceQueryStmt         *sql.Stmt
 	getUserStmt                    *sql.Stmt
 	getUserByEmailStmt             *sql.Stmt
+	listAPITokensForUserStmt       *sql.Stmt
 	listQueriesByTeamAndSourceStmt *sql.Stmt
 	listSourceTeamsStmt            *sql.Stmt
 	listSourcesStmt                *sql.Stmt
@@ -458,6 +520,7 @@ type Queries struct {
 	removeTeamMemberStmt           *sql.Stmt
 	removeTeamSourceStmt           *sql.Stmt
 	teamHasSourceStmt              *sql.Stmt
+	updateAPITokenLastUsedStmt     *sql.Stmt
 	updateSourceStmt               *sql.Stmt
 	updateTeamStmt                 *sql.Stmt
 	updateTeamMemberRoleStmt       *sql.Stmt
@@ -474,17 +537,22 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		addTeamSourceStmt:              q.addTeamSourceStmt,
 		countAdminUsersStmt:            q.countAdminUsersStmt,
 		countUserSessionsStmt:          q.countUserSessionsStmt,
+		createAPITokenStmt:             q.createAPITokenStmt,
 		createSessionStmt:              q.createSessionStmt,
 		createSourceStmt:               q.createSourceStmt,
 		createTeamStmt:                 q.createTeamStmt,
 		createTeamSourceQueryStmt:      q.createTeamSourceQueryStmt,
 		createUserStmt:                 q.createUserStmt,
+		deleteAPITokenStmt:             q.deleteAPITokenStmt,
+		deleteExpiredAPITokensStmt:     q.deleteExpiredAPITokensStmt,
 		deleteSessionStmt:              q.deleteSessionStmt,
 		deleteSourceStmt:               q.deleteSourceStmt,
 		deleteTeamStmt:                 q.deleteTeamStmt,
 		deleteTeamSourceQueryStmt:      q.deleteTeamSourceQueryStmt,
 		deleteUserStmt:                 q.deleteUserStmt,
 		deleteUserSessionsStmt:         q.deleteUserSessionsStmt,
+		getAPITokenStmt:                q.getAPITokenStmt,
+		getAPITokenByHashStmt:          q.getAPITokenByHashStmt,
 		getSessionStmt:                 q.getSessionStmt,
 		getSourceStmt:                  q.getSourceStmt,
 		getSourceByNameStmt:            q.getSourceByNameStmt,
@@ -494,6 +562,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getTeamSourceQueryStmt:         q.getTeamSourceQueryStmt,
 		getUserStmt:                    q.getUserStmt,
 		getUserByEmailStmt:             q.getUserByEmailStmt,
+		listAPITokensForUserStmt:       q.listAPITokensForUserStmt,
 		listQueriesByTeamAndSourceStmt: q.listQueriesByTeamAndSourceStmt,
 		listSourceTeamsStmt:            q.listSourceTeamsStmt,
 		listSourcesStmt:                q.listSourcesStmt,
@@ -508,6 +577,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		removeTeamMemberStmt:           q.removeTeamMemberStmt,
 		removeTeamSourceStmt:           q.removeTeamSourceStmt,
 		teamHasSourceStmt:              q.teamHasSourceStmt,
+		updateAPITokenLastUsedStmt:     q.updateAPITokenLastUsedStmt,
 		updateSourceStmt:               q.updateSourceStmt,
 		updateTeamStmt:                 q.updateTeamStmt,
 		updateTeamMemberRoleStmt:       q.updateTeamMemberRoleStmt,

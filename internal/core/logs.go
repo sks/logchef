@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/mr-karan/logchef/internal/clickhouse"
 	"github.com/mr-karan/logchef/internal/sqlite"
@@ -14,6 +13,7 @@ import (
 // --- Log Querying Functions ---
 
 // QueryLogs retrieves logs from a specific source based on the provided parameters.
+// Timeout is always applied - either from params or default value.
 func QueryLogs(ctx context.Context, db *sqlite.DB, chDB *clickhouse.Manager, log *slog.Logger, sourceID models.SourceID, params clickhouse.LogQueryParams) (*models.QueryResult, error) {
 	// 1. Get source details from SQLite to validate existence and get table name
 	source, err := db.GetSource(ctx, sourceID)
@@ -25,7 +25,18 @@ func QueryLogs(ctx context.Context, db *sqlite.DB, chDB *clickhouse.Manager, log
 		return nil, ErrSourceNotFound // Use the core package's error
 	}
 
-	log.Debug("querying logs", "source_id", sourceID, "database", source.Connection.Database, "table", source.Connection.TableName, "limit", params.Limit)
+	// Ensure timeout is always set
+	if params.QueryTimeout == nil {
+		defaultTimeout := models.DefaultQueryTimeoutSeconds
+		params.QueryTimeout = &defaultTimeout
+	}
+
+	log.Debug("querying logs",
+		"source_id", sourceID,
+		"database", source.Connection.Database,
+		"table", source.Connection.TableName,
+		"limit", params.Limit,
+		"timeout_seconds", *params.QueryTimeout)
 
 	// 2. Get ClickHouse connection for the source
 	client, err := chDB.GetConnection(sourceID)
@@ -52,9 +63,9 @@ func QueryLogs(ctx context.Context, db *sqlite.DB, chDB *clickhouse.Manager, log
 	// --- Alternatively, build query from structured params --- //
 	// query := qb.BuildSelectQuery(params.StartTime, params.EndTime, params.Filter, params.Limit)
 
-	// 4. Execute the query via the ClickHouse client
+	// 4. Execute the query via the ClickHouse client with timeout (always applied)
 	log.Debug("executing clickhouse query", "source_id", sourceID, "query_len", len(builtQuery))
-	queryResult, err := client.Query(ctx, builtQuery)
+	queryResult, err := client.QueryWithTimeout(ctx, builtQuery, params.QueryTimeout)
 	if err != nil {
 		log.Error("failed to execute clickhouse query", "source_id", sourceID, "error", err)
 		// Consider parsing CH error for user-friendliness
@@ -102,12 +113,12 @@ func GetSourceSchema(ctx context.Context, db *sqlite.DB, chDB *clickhouse.Manage
 // HistogramParams defines parameters specifically for histogram queries.
 // Keeping it separate allows for specific validation or processing.
 type HistogramParams struct {
-	StartTime time.Time
-	EndTime   time.Time
-	Window    string // e.g., "1m", "5m", "1h"
-	Query     string // Optional filter query (WHERE clause part)
-	GroupBy   string // Optional field to group by
-	Timezone  string // Optional timezone identifier (e.g., 'America/New_York', 'UTC')
+	Window   string // e.g., "1m", "5m", "1h"
+	Query    string // Optional filter query (WHERE clause part)
+	GroupBy  string // Optional field to group by
+	Timezone string // Optional timezone identifier (e.g., 'America/New_York', 'UTC')
+	// Query execution timeout in seconds. If not specified, uses default timeout.
+	QueryTimeout *int
 }
 
 // HistogramResponse structures the response for histogram data.
@@ -117,7 +128,7 @@ type HistogramResponse struct {
 }
 
 // GetHistogramData fetches histogram data for a specific source and time range.
-// It uses the source's configured timestamp field.
+// It uses the source's configured timestamp field. Timeout is always applied.
 func GetHistogramData(ctx context.Context, db *sqlite.DB, chDB *clickhouse.Manager, log *slog.Logger, sourceID models.SourceID, params HistogramParams) (*HistogramResponse, error) {
 	// 1. Get source details (especially the timestamp field)
 	source, err := db.GetSource(ctx, sourceID)
@@ -134,16 +145,27 @@ func GetHistogramData(ctx context.Context, db *sqlite.DB, chDB *clickhouse.Manag
 		return nil, fmt.Errorf("source %d does not have a timestamp field configured, cannot generate histogram", sourceID)
 	}
 
+	// Add validation for the query parameter
+	if params.Query == "" {
+		log.Error("histogram query attempted without a query", "source_id", sourceID)
+		return nil, fmt.Errorf("query parameter is required for histogram data")
+	}
+
+	// Ensure timeout is always set
+	if params.QueryTimeout == nil {
+		defaultTimeout := models.DefaultQueryTimeoutSeconds
+		params.QueryTimeout = &defaultTimeout
+	}
+
 	log.Debug("getting histogram data",
 		"source_id", sourceID,
 		"database", source.Connection.Database,
 		"table", source.Connection.TableName,
 		"ts_field", source.MetaTSField,
-		"start_time", params.StartTime,
-		"end_time", params.EndTime,
 		"window", params.Window,
 		"filter_query_len", len(params.Query),
 		"group_by", params.GroupBy,
+		"timeout_seconds", *params.QueryTimeout,
 	)
 
 	// 2. Get ClickHouse connection
@@ -201,12 +223,11 @@ func GetHistogramData(ctx context.Context, db *sqlite.DB, chDB *clickhouse.Manag
 	}
 
 	chParams := clickhouse.HistogramParams{
-		StartTime: params.StartTime,
-		EndTime:   params.EndTime,
-		Window:    chWindow,
-		Query:     params.Query,    // Pass the optional filter query
-		GroupBy:   params.GroupBy,  // Pass the optional group by field
-		Timezone:  params.Timezone, // Pass the optional timezone identifier
+		Window:       chWindow,
+		Query:        params.Query,        // Pass the optional filter query
+		GroupBy:      params.GroupBy,      // Pass the optional group by field
+		Timezone:     params.Timezone,     // Pass the optional timezone identifier
+		QueryTimeout: params.QueryTimeout, // Pass the query timeout (always set now)
 	}
 
 	// 4. Call the ClickHouse client method

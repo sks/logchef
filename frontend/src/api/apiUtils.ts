@@ -7,9 +7,17 @@ import type { APIResponse } from "./types";
 export async function apiRequest<T>(
   method: "get" | "post" | "put" | "delete",
   url: string,
-  data?: any
+  data?: any,
+  options?: { timeout?: number }
 ): Promise<APIResponse<T>> {
-  const response = await api[method]<APIResponse<T>>(url, data);
+  const config = options?.timeout ? { timeout: options.timeout * 1000 } : {}; // Convert seconds to milliseconds
+  
+  let response;
+  if (method === "get" || method === "delete") {
+    response = await api[method]<APIResponse<T>>(url, config);
+  } else {
+    response = await api[method]<APIResponse<T>>(url, data, config);
+  }
   return response.data;
 }
 
@@ -17,8 +25,8 @@ export async function apiRequest<T>(
  * Shorthand methods for common API operations
  */
 export const apiClient = {
-  get: <T>(url: string) => apiRequest<T>("get", url),
-  post: <T>(url: string, data?: any) => apiRequest<T>("post", url, data),
-  put: <T>(url: string, data?: any) => apiRequest<T>("put", url, data),
-  delete: <T>(url: string) => apiRequest<T>("delete", url)
+  get: <T>(url: string, options?: { timeout?: number }) => apiRequest<T>("get", url, undefined, options),
+  post: <T>(url: string, data?: any, options?: { timeout?: number }) => apiRequest<T>("post", url, data, options),
+  put: <T>(url: string, data?: any, options?: { timeout?: number }) => apiRequest<T>("put", url, data, options),
+  delete: <T>(url: string, options?: { timeout?: number }) => apiRequest<T>("delete", url, undefined, options)
 };

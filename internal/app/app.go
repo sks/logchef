@@ -26,6 +26,7 @@ type App struct {
 	server     *server.Server
 	WebFS      http.FileSystem
 	BuildInfo  string
+	Version    string
 }
 
 // Options contains configuration needed when creating a new App instance.
@@ -33,6 +34,7 @@ type Options struct {
 	ConfigPath string
 	WebFS      http.FileSystem // Web filesystem for serving static files.
 	BuildInfo  string
+	Version    string
 }
 
 // New creates and configures a new App instance.
@@ -47,6 +49,7 @@ func New(opts Options) (*App, error) {
 		Logger:    logger.New(cfg.Logging.Level == "debug"),
 		WebFS:     opts.WebFS,
 		BuildInfo: opts.BuildInfo,
+		Version:   opts.Version,
 	}
 
 	return app, nil
@@ -120,6 +123,7 @@ func (a *App) Initialize(ctx context.Context) error {
 		FS:           a.WebFS,
 		Logger:       a.Logger,
 		BuildInfo:    a.BuildInfo,
+		Version:      a.Version,
 	}
 	a.server = server.New(serverOpts)
 

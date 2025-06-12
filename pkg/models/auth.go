@@ -34,6 +34,9 @@ const (
 	// TeamRoleAdmin represents a team admin
 	TeamRoleAdmin TeamRole = "admin"
 
+	// TeamRoleEditor represents a team editor with collection management permissions
+	TeamRoleEditor TeamRole = "editor"
+
 	// TeamRoleMember represents a regular team member
 	TeamRoleMember TeamRole = "member"
 )
@@ -92,6 +95,17 @@ type TeamMember struct {
 	FullName  string    `db:"full_name" json:"full_name,omitempty"`
 }
 
+// UserTeamDetails represents the details of a team a user is part of, including their role.
+type UserTeamDetails struct {
+	ID          TeamID    `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	MemberCount int       `json:"member_count"`
+	Role        TeamRole  `json:"role"`
+}
+
 // TeamQuery represents a saved query in a team
 type TeamQuery struct {
 	ID           int            `json:"id" db:"id"`
@@ -102,4 +116,28 @@ type TeamQuery struct {
 	QueryType    SavedQueryType `json:"query_type" db:"query_type"`
 	QueryContent string         `json:"query_content" db:"query_content"`
 	Timestamps
+}
+
+// APIToken represents an API token for authentication
+type APIToken struct {
+	ID          int        `json:"id" db:"id"`
+	UserID      UserID     `json:"user_id" db:"user_id"`
+	Name        string     `json:"name" db:"name"`
+	TokenHash   string     `json:"-" db:"token_hash"` // Never expose in JSON
+	Prefix      string     `json:"prefix" db:"prefix"`
+	LastUsedAt  *time.Time `json:"last_used_at,omitempty" db:"last_used_at"`
+	ExpiresAt   *time.Time `json:"expires_at,omitempty" db:"expires_at"`
+	Timestamps
+}
+
+// CreateAPITokenRequest represents a request to create a new API token
+type CreateAPITokenRequest struct {
+	Name      string     `json:"name"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+}
+
+// CreateAPITokenResponse represents the response when creating an API token
+type CreateAPITokenResponse struct {
+	Token     string    `json:"token"`      // Full token (only shown once)
+	APIToken  *APIToken `json:"api_token"`  // Token metadata
 }

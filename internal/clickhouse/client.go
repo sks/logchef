@@ -17,6 +17,14 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 )
 
+// Default values for query execution
+const (
+	// DefaultQueryTimeout is the default max_execution_time in seconds if not specified
+	DefaultQueryTimeout = 60
+	// MaxQueryTimeout is the maximum allowed timeout to prevent resource abuse
+	MaxQueryTimeout = 300 // 5 minutes
+)
+
 // Client represents a connection to a ClickHouse database using the native protocol.
 // It provides methods for executing queries and retrieving metadata.
 type Client struct {
@@ -157,20 +165,33 @@ func (c *Client) executeQueryWithHooks(ctx context.Context, query string, fn fun
 // It automatically handles DDL statements by calling execDDL.
 // The params argument is now unused but kept for potential future structured query building.
 func (c *Client) Query(ctx context.Context, query string /* params LogQueryParams - Removed */) (*models.QueryResult, error) {
+	return c.QueryWithTimeout(ctx, query, nil)
+}
+
+// QueryWithTimeout executes a SELECT query with a timeout setting.
+// The timeoutSeconds parameter is required and will always be applied.
+func (c *Client) QueryWithTimeout(ctx context.Context, query string, timeoutSeconds *int) (*models.QueryResult, error) {
 	start := time.Now()          // Used for calculating total duration including hook overhead.
 	queryStartTime := time.Now() // Separate timer for actual DB execution
 	var queryDuration time.Duration
+
+	// Ensure timeout is provided (should always be the case now)
+	if timeoutSeconds == nil {
+		defaultTimeout := DefaultQueryTimeout
+		timeoutSeconds = &defaultTimeout
+	}
 
 	defer func() {
 		c.logger.Debug("query processing complete",
 			"duration_ms", time.Since(start).Milliseconds(),
 			"query_length", len(query),
+			"timeout_seconds", *timeoutSeconds,
 		)
 	}()
 
 	// Delegate DDL statements (CREATE, ALTER, DROP, etc.) to execDDL.
 	if isDDLStatement(query) {
-		return c.execDDL(ctx, query)
+		return c.execDDLWithTimeout(ctx, query, timeoutSeconds)
 	}
 
 	var rows driver.Rows
@@ -181,19 +202,24 @@ func (c *Client) Query(ctx context.Context, query string /* params LogQueryParam
 	err := c.executeQueryWithHooks(ctx, query, func(hookCtx context.Context) error {
 		var queryErr error
 		queryStartTime = time.Now() // Reset timer before execution
+
+		// Always apply timeout setting
+		hookCtx = clickhouse.Context(hookCtx, clickhouse.WithSettings(clickhouse.Settings{
+			"max_execution_time": *timeoutSeconds,
+		}))
+		c.logger.Debug("applying query timeout", "timeout_seconds", *timeoutSeconds)
+
 		rows, queryErr = c.conn.Query(hookCtx, query)
-		// Defer rows.Close() here. We are abandoning getting accurate stats from the driver for now.
-		if rows != nil { // Only defer close if rows is not nil
-			defer func() {
-				// Closing might return an error, potentially overriding queryErr
-				// Consider how to handle this if needed, for now, we prioritize queryErr
-				// closeErr := rows.Close()
-				rows.Close()
-			}()
-		}
 		if queryErr != nil {
-			return queryErr // Return error to be logged by AfterQuery hook.
+			return queryErr
 		}
+		
+		// Close rows when we're done processing them
+		defer func() {
+			if rows != nil {
+				rows.Close()
+			}
+		}()
 
 		// Get column names and types.
 		columnTypes := rows.ColumnTypes()
@@ -250,8 +276,27 @@ func (c *Client) Query(ctx context.Context, query string /* params LogQueryParam
 // execDDL executes a DDL statement (e.g., CREATE, ALTER, DROP) using hooks.
 // It returns an empty QueryResult on success.
 func (c *Client) execDDL(ctx context.Context, query string) (*models.QueryResult, error) {
+	return c.execDDLWithTimeout(ctx, query, nil)
+}
+
+// execDDLWithTimeout executes a DDL statement with a timeout setting.
+// The timeoutSeconds parameter is required and will always be applied.
+func (c *Client) execDDLWithTimeout(ctx context.Context, query string, timeoutSeconds *int) (*models.QueryResult, error) {
 	start := time.Now()
+
+	// Ensure timeout is provided (should always be the case now)
+	if timeoutSeconds == nil {
+		defaultTimeout := DefaultQueryTimeout
+		timeoutSeconds = &defaultTimeout
+	}
+
 	err := c.executeQueryWithHooks(ctx, query, func(hookCtx context.Context) error {
+		// Always apply timeout setting
+		hookCtx = clickhouse.Context(hookCtx, clickhouse.WithSettings(clickhouse.Settings{
+			"max_execution_time": *timeoutSeconds,
+		}))
+		c.logger.Debug("applying DDL query timeout", "timeout_seconds", *timeoutSeconds)
+
 		return c.conn.Exec(hookCtx, query)
 	})
 

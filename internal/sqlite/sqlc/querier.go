@@ -19,6 +19,9 @@ type Querier interface {
 	CountAdminUsers(ctx context.Context, arg CountAdminUsersParams) (int64, error)
 	// Count active sessions for a user
 	CountUserSessions(ctx context.Context, arg CountUserSessionsParams) (int64, error)
+	// API Tokens
+	// Create a new API token
+	CreateAPIToken(ctx context.Context, arg CreateAPITokenParams) (int64, error)
 	// Sessions
 	// Create a new session
 	CreateSession(ctx context.Context, arg CreateSessionParams) error
@@ -34,6 +37,10 @@ type Querier interface {
 	// Users
 	// Create a new user
 	CreateUser(ctx context.Context, arg CreateUserParams) (int64, error)
+	// Delete an API token by ID and user ID (ensure user owns the token)
+	DeleteAPIToken(ctx context.Context, arg DeleteAPITokenParams) error
+	// Delete all expired API tokens
+	DeleteExpiredAPITokens(ctx context.Context) error
 	// Delete a session by ID
 	DeleteSession(ctx context.Context, id string) error
 	// Delete a source by ID
@@ -46,6 +53,10 @@ type Querier interface {
 	DeleteUser(ctx context.Context, id int64) error
 	// Delete all sessions for a user
 	DeleteUserSessions(ctx context.Context, userID int64) error
+	// Get an API token by ID
+	GetAPIToken(ctx context.Context, id int64) (ApiToken, error)
+	// Get an API token by its hash (for authentication)
+	GetAPITokenByHash(ctx context.Context, tokenHash string) (ApiToken, error)
 	// Get a session by ID
 	GetSession(ctx context.Context, id string) (Session, error)
 	// Get a single source by ID
@@ -64,6 +75,8 @@ type Querier interface {
 	GetUser(ctx context.Context, id int64) (User, error)
 	// Get a user by email
 	GetUserByEmail(ctx context.Context, email string) (User, error)
+	// List all API tokens for a user
+	ListAPITokensForUser(ctx context.Context, userID int64) ([]ApiToken, error)
 	// List all queries for a specific team and source
 	ListQueriesByTeamAndSource(ctx context.Context, arg ListQueriesByTeamAndSourceParams) ([]TeamQuery, error)
 	// List all teams a data source is a member of
@@ -81,7 +94,7 @@ type Querier interface {
 	// List all teams
 	ListTeams(ctx context.Context) ([]ListTeamsRow, error)
 	// List all teams a user is a member of
-	ListTeamsForUser(ctx context.Context, userID int64) ([]Team, error)
+	ListTeamsForUser(ctx context.Context, userID int64) ([]ListTeamsForUserRow, error)
 	// List all teams a user is a member of
 	ListUserTeams(ctx context.Context, userID int64) ([]Team, error)
 	// List all users
@@ -93,6 +106,8 @@ type Querier interface {
 	// Additional queries for user-source and team-source access
 	// Check if a team has access to a source
 	TeamHasSource(ctx context.Context, arg TeamHasSourceParams) (int64, error)
+	// Update the last used timestamp for an API token
+	UpdateAPITokenLastUsed(ctx context.Context, id int64) error
 	// Update an existing source
 	UpdateSource(ctx context.Context, arg UpdateSourceParams) error
 	// Update a team

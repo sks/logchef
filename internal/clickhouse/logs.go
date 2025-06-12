@@ -8,12 +8,15 @@ import (
 	"time"
 
 	"github.com/mr-karan/logchef/pkg/models"
+	clickhouseparser "github.com/AfterShip/clickhouse-sql-parser/parser"
 )
 
 // LogQueryParams defines parameters for querying logs.
 type LogQueryParams struct {
 	Limit  int
 	RawSQL string
+	// Query execution timeout in seconds. If not specified, uses default timeout.
+	QueryTimeout *int
 }
 
 // LogQueryResult represents the structured result of a log query.
@@ -67,12 +70,12 @@ type LogContextResult struct {
 
 // HistogramParams defines parameters for generating histogram data.
 type HistogramParams struct {
-	StartTime time.Time
-	EndTime   time.Time
-	Window    TimeWindow
-	Query     string // Raw SQL query to use as base for histogram
-	GroupBy   string // Optional: Field to group by for segmented histograms.
-	Timezone  string // Optional: Timezone identifier for time-based operations.
+	Window   TimeWindow
+	Query    string // Raw SQL query to use as base for histogram
+	GroupBy  string // Optional: Field to group by for segmented histograms.
+	Timezone string // Optional: Timezone identifier for time-based operations.
+	// Query execution timeout in seconds. If not specified, uses default timeout.
+	QueryTimeout *int
 }
 
 // HistogramData represents a single time bucket and its log count in a histogram.
@@ -88,104 +91,21 @@ type HistogramResult struct {
 	Data        []HistogramData `json:"data"`
 }
 
-// Helper function to find the minimum of two integers
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-// Helper function to extract non-time WHERE conditions from SQL query
-// It specifically tries to ignore `timestamp >=`, `timestamp <=`, and `timestamp BETWEEN` clauses.
-func extractNonTimeWhereConditions(sql string, timestampField string) string {
-	// 1. Extract the full WHERE clause content first
-	wherePattern := `(?i)WHERE\s+(.*?)(?:\s+(?:GROUP\s+BY|ORDER\s+BY|LIMIT|HAVING|OFFSET|UNION|INTERSECT|EXCEPT|$))`
-	re := regexp.MustCompile(wherePattern)
-	matches := re.FindStringSubmatch(sql)
-
-	fullWhereClause := ""
-	if len(matches) > 1 {
-		fullWhereClause = strings.TrimSpace(matches[1])
-	} else {
-		// If no WHERE keyword, but might contain conditions, assume the whole string is conditions
-		operatorPattern := `(?i)(=|!=|<>|<|>|<=|>=|LIKE|IN\s*\(|NOT IN\s*\(|BETWEEN)`
-		if regexp.MustCompile(operatorPattern).MatchString(sql) {
-			fullWhereClause = strings.TrimSpace(sql)
-		}
-	}
-
-	if fullWhereClause == "" {
-		return "" // No conditions found
-	}
-
-	// 2. Split conditions by AND/OR (simplistic split, might break with nested parentheses)
-	// We need to preserve the AND/OR structure.
-	// Regex to split by AND/OR while keeping them as delimiters
-	// This regex uses lookahead/lookbehind to split correctly
-	splitPattern := `(?i)\s+(AND|OR)\s+`
-	splitRegex := regexp.MustCompile(splitPattern)
-
-	// Find all delimiters and their positions
-	delimiterIndices := splitRegex.FindAllStringIndex(fullWhereClause, -1)
-	delimiterMatches := splitRegex.FindAllString(fullWhereClause, -1)
-
-	conditions := []string{}
-	lastIndex := 0
-	for i, indices := range delimiterIndices {
-		// Add the condition before the delimiter
-		conditions = append(conditions, strings.TrimSpace(fullWhereClause[lastIndex:indices[0]]))
-		// Add the delimiter itself
-		conditions = append(conditions, strings.TrimSpace(delimiterMatches[i]))
-		lastIndex = indices[1]
-	}
-	// Add the last condition after the final delimiter
-	conditions = append(conditions, strings.TrimSpace(fullWhereClause[lastIndex:]))
-
-	// 3. Filter out time-related conditions
-	filteredConditions := []string{}
-	timestampPattern := fmt.Sprintf(`(?i)^\s*%s\s*(>=|<=|BETWEEN)`, regexp.QuoteMeta(timestampField))
-	timestampRegex := regexp.MustCompile(timestampPattern)
-
-	// Reconstruct the query, skipping time conditions but keeping AND/OR
-	keepNextOperator := true // Start by potentially keeping the first condition
-	for i := 0; i < len(conditions); i++ {
-		isCondition := (i%2 == 0) // Even indices are conditions, odd are operators (AND/OR)
-
-		if isCondition {
-			condition := conditions[i]
-			if !timestampRegex.MatchString(condition) {
-				// It's not a time condition, keep it
-				if !keepNextOperator && len(filteredConditions) > 0 {
-					// Need to add the preceding operator (AND/OR) if this isn't the first condition kept
-					filteredConditions = append(filteredConditions, conditions[i-1])
-				}
-				filteredConditions = append(filteredConditions, condition)
-				keepNextOperator = false // The next operator should be kept
-			} else {
-				// It IS a time condition, skip it. Also skip the *next* operator if one exists
-				keepNextOperator = true
-			}
-		} else { // It's an operator (AND/OR)
-			// Operator logic is handled when processing the *next* condition
-		}
-	}
-
-	// Handle edge case: if the *last* condition was a time condition, the loop might end
-	// without removing a preceding AND/OR that is now dangling.
-	if len(filteredConditions) > 0 {
-		lastElement := filteredConditions[len(filteredConditions)-1]
-		if strings.EqualFold(lastElement, "AND") || strings.EqualFold(lastElement, "OR") {
-			filteredConditions = filteredConditions[:len(filteredConditions)-1]
-		}
-	}
-
-	return strings.Join(filteredConditions, " ")
-}
-
 // GetHistogramData generates histogram data by grouping log counts into time buckets.
 // It uses the provided raw SQL as the base query and applies time window aggregation.
+// Timeout is always applied.
 func (c *Client) GetHistogramData(ctx context.Context, tableName, timestampField string, params HistogramParams) (*HistogramResult, error) {
+	// Validate query parameter
+	if params.Query == "" {
+		return nil, fmt.Errorf("query parameter is required for histogram data")
+	}
+
+	// Ensure timeout is always set
+	if params.QueryTimeout == nil {
+		defaultTimeout := DefaultQueryTimeout
+		params.QueryTimeout = &defaultTimeout
+	}
+
 	// Get timezone or default to UTC
 	timezone := params.Timezone
 	if timezone == "" {
@@ -219,27 +139,53 @@ func (c *Client) GetHistogramData(ctx context.Context, tableName, timestampField
 		return nil, fmt.Errorf("invalid time window: %s", params.Window)
 	}
 
-	// Process the raw SQL query if provided
+	// Process the raw SQL query
 	baseQuery := ""
-	if params.Query != "" {
-		// Use the query builder to remove LIMIT clause
-		qb := NewQueryBuilder(tableName)
-		var err error
-		baseQuery, err = qb.RemoveLimitClause(params.Query)
-		if err != nil {
-			return nil, fmt.Errorf("failed to process base query: %w", err)
+	// Use the query builder to remove LIMIT clause
+	qb := NewQueryBuilder(tableName)
+	var err error
+	baseQuery, err = qb.RemoveLimitClause(params.Query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to process base query: %w", err)
+	}
+
+	// Extract time range conditions for better logging
+	timeConditionRegex := regexp.MustCompile(fmt.Sprintf(`(?i)%s\s+BETWEEN\s+toDateTime\(['"](.+?)['"](,\s*['"](.+?)['"])?\)\s+AND\s+toDateTime\(['"](.+?)['"](,\s*['"](.+?)['"])?\)`, regexp.QuoteMeta(timestampField)))
+	matches := timeConditionRegex.FindStringSubmatch(params.Query)
+
+	if len(matches) >= 5 {
+		startTime := matches[1]
+		startTz := matches[3]
+		if startTz == "" {
+			startTz = timezone
 		}
+		endTime := matches[4]
+		endTz := matches[6]
+		if endTz == "" {
+			endTz = timezone
+		}
+
+		c.logger.Debug("Extracted time filter from query",
+			"start", startTime,
+			"start_tz", startTz,
+			"end", endTime,
+			"end_tz", endTz)
 	} else {
-		// Fallback to a simple query if none provided
-		baseQuery = fmt.Sprintf("SELECT * FROM %s", tableName)
+		c.logger.Debug("No time filter extracted from query, using entire dataset")
 	}
 
 	// Construct the histogram query using CTE
 	var query string
 	if params.GroupBy != "" && strings.TrimSpace(params.GroupBy) != "" {
 		// Histogram with grouping - find top N groups
+		// Ensure timestamp field is available in subquery for histogram bucketing
+		modifiedQuery, err := c.ensureTimestampInQuery(baseQuery, timestampField)
+		if err != nil {
+			return nil, fmt.Errorf("failed to modify query for grouped histogram: %w", err)
+		}
+		
 		query = fmt.Sprintf(`
-			WITH 
+			WITH
 				top_groups AS (
 					SELECT
 						%s AS group_value,
@@ -261,9 +207,15 @@ func (c *Client) GetHistogramData(ctx context.Context, tableName, timestampField
 			ORDER BY
 				bucket ASC,
 				log_count DESC
-		`, params.GroupBy, baseQuery, intervalFunc, params.GroupBy, baseQuery, params.GroupBy)
+		`, params.GroupBy, modifiedQuery, intervalFunc, params.GroupBy, modifiedQuery, params.GroupBy)
 	} else {
 		// Standard histogram without grouping
+		// Ensure timestamp field is available in subquery for histogram bucketing
+		modifiedQuery, err := c.ensureTimestampInQuery(baseQuery, timestampField)
+		if err != nil {
+			return nil, fmt.Errorf("failed to modify query for histogram: %w", err)
+		}
+		
 		query = fmt.Sprintf(`
 			SELECT
 				%s AS bucket,
@@ -271,11 +223,16 @@ func (c *Client) GetHistogramData(ctx context.Context, tableName, timestampField
 			FROM (%s) AS raw_logs
 			GROUP BY bucket
 			ORDER BY bucket ASC
-		`, intervalFunc, baseQuery)
+		`, intervalFunc, modifiedQuery)
 	}
 
-	// Execute the query
-	result, err := c.Query(ctx, query)
+	c.logger.Debug("Executing histogram query",
+		"query_length", len(query),
+		"has_time_filter", len(matches) >= 5,
+		"timeout_seconds", *params.QueryTimeout)
+
+	// Execute the query with timeout (always applied)
+	result, err := c.QueryWithTimeout(ctx, query, params.QueryTimeout)
 	if err != nil {
 		c.logger.Error("failed to execute histogram query", "error", err, "table", tableName)
 		return nil, fmt.Errorf("failed to execute histogram query: %w", err)
@@ -342,4 +299,96 @@ func (c *Client) GetHistogramData(ctx context.Context, tableName, timestampField
 		Granularity: string(params.Window),
 		Data:        results,
 	}, nil
+}
+
+// ensureTimestampInQuery modifies a SELECT query to ensure the timestamp field is included
+// in the SELECT clause for histogram bucketing. Uses the ClickHouse SQL parser for reliability.
+func (c *Client) ensureTimestampInQuery(query, timestampField string) (string, error) {
+	// Use the same preprocessing as in QueryBuilder
+	const placeholder = "___ESCAPED_QUOTE___"
+	processedSQL := strings.ReplaceAll(query, "''", placeholder)
+	
+	parser := clickhouseparser.NewParser(processedSQL)
+	stmts, err := parser.ParseStmts()
+	if err != nil {
+		return "", fmt.Errorf("invalid SQL syntax: %w", err)
+	}
+	
+	if len(stmts) == 0 {
+		return "", fmt.Errorf("no SQL statements found")
+	}
+	if len(stmts) > 1 {
+		return "", fmt.Errorf("multiple SQL statements are not supported")
+	}
+	
+	stmt := stmts[0]
+	selectQuery, ok := stmt.(*clickhouseparser.SelectQuery)
+	if !ok {
+		return "", fmt.Errorf("only SELECT queries are supported")
+	}
+	
+	// Check if timestamp field is already in SELECT clause
+	if c.hasTimestampInSelect(selectQuery, timestampField) {
+		// Already has timestamp, return original query
+		result := strings.ReplaceAll(query, placeholder, "''")
+		return result, nil
+	}
+	
+	// Add timestamp field to SELECT clause
+	if err := c.addTimestampToSelect(selectQuery, timestampField); err != nil {
+		return "", fmt.Errorf("failed to add timestamp to SELECT clause: %w", err)
+	}
+	
+	// Convert back to SQL string and restore escaped quotes
+	result := stmt.String()
+	result = strings.ReplaceAll(result, placeholder, "''")
+	
+	return result, nil
+}
+
+// hasTimestampInSelect checks if the timestamp field is already in the SELECT clause
+func (c *Client) hasTimestampInSelect(selectQuery *clickhouseparser.SelectQuery, timestampField string) bool {
+	if selectQuery.SelectItems == nil {
+		return false
+	}
+	
+	for _, selectItem := range selectQuery.SelectItems {
+		// Check for * wildcard - look at the Expr field of SelectItem
+		if ident, ok := selectItem.Expr.(*clickhouseparser.Ident); ok {
+			if ident.Name == "*" {
+				return true // * includes all columns including timestamp
+			}
+			if ident.Name == timestampField {
+				return true
+			}
+		}
+		
+		// Check for column references in other expression types
+		if colIdent, ok := selectItem.Expr.(*clickhouseparser.ColumnIdentifier); ok {
+			if colIdent.Column != nil && colIdent.Column.Name == timestampField {
+				return true
+			}
+		}
+	}
+	
+	return false
+}
+
+// addTimestampToSelect adds the timestamp field to the SELECT clause
+func (c *Client) addTimestampToSelect(selectQuery *clickhouseparser.SelectQuery, timestampField string) error {
+	if selectQuery.SelectItems == nil {
+		selectQuery.SelectItems = []*clickhouseparser.SelectItem{}
+	}
+	
+	// Create a new SelectItem for the timestamp field
+	timestampSelectItem := &clickhouseparser.SelectItem{
+		Expr: &clickhouseparser.Ident{
+			Name: timestampField,
+		},
+	}
+	
+	// Add to the select items list
+	selectQuery.SelectItems = append(selectQuery.SelectItems, timestampSelectItem)
+	
+	return nil
 }

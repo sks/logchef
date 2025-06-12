@@ -254,10 +254,22 @@ WHERE tm.user_id = ? AND ts.source_id = ?;
 
 -- name: ListTeamsForUser :many
 -- List all teams a user is a member of
-SELECT t.* FROM teams t
-JOIN team_members tm ON t.id = tm.team_id
-WHERE tm.user_id = ?
-ORDER BY t.created_at DESC;
+SELECT
+    t.id,
+    t.name,
+    t.description,
+    t.created_at,
+    t.updated_at,
+    tm.role,  -- The current user's role in this team
+    (SELECT COUNT(*) FROM team_members sub_tm WHERE sub_tm.team_id = t.id) as member_count
+FROM
+    teams t
+JOIN
+    team_members tm ON t.id = tm.team_id
+WHERE
+    tm.user_id = ?  -- The current user ID
+ORDER BY
+    t.created_at DESC;
 
 -- name: GetTeamByName :one
 -- Get a team by its name
@@ -270,3 +282,38 @@ JOIN team_sources ts ON s.id = ts.source_id
 JOIN team_members tm ON ts.team_id = tm.team_id
 WHERE tm.user_id = ?
 ORDER BY s.created_at DESC;
+
+-- API Tokens
+
+-- name: CreateAPIToken :one
+-- Create a new API token
+INSERT INTO api_tokens (user_id, name, token_hash, prefix, expires_at)
+VALUES (?, ?, ?, ?, ?)
+RETURNING id;
+
+-- name: GetAPIToken :one
+-- Get an API token by ID
+SELECT * FROM api_tokens WHERE id = ?;
+
+-- name: GetAPITokenByHash :one
+-- Get an API token by its hash (for authentication)
+SELECT * FROM api_tokens WHERE token_hash = ?;
+
+-- name: ListAPITokensForUser :many
+-- List all API tokens for a user
+SELECT * FROM api_tokens WHERE user_id = ? ORDER BY created_at DESC;
+
+-- name: UpdateAPITokenLastUsed :exec
+-- Update the last used timestamp for an API token
+UPDATE api_tokens
+SET last_used_at = datetime('now'),
+    updated_at = datetime('now')
+WHERE id = ?;
+
+-- name: DeleteAPIToken :exec
+-- Delete an API token by ID and user ID (ensure user owns the token)
+DELETE FROM api_tokens WHERE id = ? AND user_id = ?;
+
+-- name: DeleteExpiredAPITokens :exec
+-- Delete all expired API tokens
+DELETE FROM api_tokens WHERE expires_at IS NOT NULL AND expires_at < datetime('now');
