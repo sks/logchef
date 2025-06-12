@@ -210,18 +210,16 @@ func (c *Client) QueryWithTimeout(ctx context.Context, query string, timeoutSeco
 		c.logger.Debug("applying query timeout", "timeout_seconds", *timeoutSeconds)
 
 		rows, queryErr = c.conn.Query(hookCtx, query)
-		// Defer rows.Close() here. We are abandoning getting accurate stats from the driver for now.
-		if rows != nil { // Only defer close if rows is not nil
-			defer func() {
-				// Closing might return an error, potentially overriding queryErr
-				// Consider how to handle this if needed, for now, we prioritize queryErr
-				// closeErr := rows.Close()
-				rows.Close()
-			}()
-		}
 		if queryErr != nil {
-			return queryErr // Return error to be logged by AfterQuery hook.
+			return queryErr
 		}
+		
+		// Close rows when we're done processing them
+		defer func() {
+			if rows != nil {
+				rows.Close()
+			}
+		}()
 
 		// Get column names and types.
 		columnTypes := rows.ColumnTypes()

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mr-karan/logchef/pkg/models"
+	clickhouseparser "github.com/AfterShip/clickhouse-sql-parser/parser"
 )
 
 // LogQueryParams defines parameters for querying logs.
@@ -177,6 +178,12 @@ func (c *Client) GetHistogramData(ctx context.Context, tableName, timestampField
 	var query string
 	if params.GroupBy != "" && strings.TrimSpace(params.GroupBy) != "" {
 		// Histogram with grouping - find top N groups
+		// Ensure timestamp field is available in subquery for histogram bucketing
+		modifiedQuery, err := c.ensureTimestampInQuery(baseQuery, timestampField)
+		if err != nil {
+			return nil, fmt.Errorf("failed to modify query for grouped histogram: %w", err)
+		}
+		
 		query = fmt.Sprintf(`
 			WITH
 				top_groups AS (
@@ -200,9 +207,15 @@ func (c *Client) GetHistogramData(ctx context.Context, tableName, timestampField
 			ORDER BY
 				bucket ASC,
 				log_count DESC
-		`, params.GroupBy, baseQuery, intervalFunc, params.GroupBy, baseQuery, params.GroupBy)
+		`, params.GroupBy, modifiedQuery, intervalFunc, params.GroupBy, modifiedQuery, params.GroupBy)
 	} else {
 		// Standard histogram without grouping
+		// Ensure timestamp field is available in subquery for histogram bucketing
+		modifiedQuery, err := c.ensureTimestampInQuery(baseQuery, timestampField)
+		if err != nil {
+			return nil, fmt.Errorf("failed to modify query for histogram: %w", err)
+		}
+		
 		query = fmt.Sprintf(`
 			SELECT
 				%s AS bucket,
@@ -210,7 +223,7 @@ func (c *Client) GetHistogramData(ctx context.Context, tableName, timestampField
 			FROM (%s) AS raw_logs
 			GROUP BY bucket
 			ORDER BY bucket ASC
-		`, intervalFunc, baseQuery)
+		`, intervalFunc, modifiedQuery)
 	}
 
 	c.logger.Debug("Executing histogram query",
@@ -286,4 +299,96 @@ func (c *Client) GetHistogramData(ctx context.Context, tableName, timestampField
 		Granularity: string(params.Window),
 		Data:        results,
 	}, nil
+}
+
+// ensureTimestampInQuery modifies a SELECT query to ensure the timestamp field is included
+// in the SELECT clause for histogram bucketing. Uses the ClickHouse SQL parser for reliability.
+func (c *Client) ensureTimestampInQuery(query, timestampField string) (string, error) {
+	// Use the same preprocessing as in QueryBuilder
+	const placeholder = "___ESCAPED_QUOTE___"
+	processedSQL := strings.ReplaceAll(query, "''", placeholder)
+	
+	parser := clickhouseparser.NewParser(processedSQL)
+	stmts, err := parser.ParseStmts()
+	if err != nil {
+		return "", fmt.Errorf("invalid SQL syntax: %w", err)
+	}
+	
+	if len(stmts) == 0 {
+		return "", fmt.Errorf("no SQL statements found")
+	}
+	if len(stmts) > 1 {
+		return "", fmt.Errorf("multiple SQL statements are not supported")
+	}
+	
+	stmt := stmts[0]
+	selectQuery, ok := stmt.(*clickhouseparser.SelectQuery)
+	if !ok {
+		return "", fmt.Errorf("only SELECT queries are supported")
+	}
+	
+	// Check if timestamp field is already in SELECT clause
+	if c.hasTimestampInSelect(selectQuery, timestampField) {
+		// Already has timestamp, return original query
+		result := strings.ReplaceAll(query, placeholder, "''")
+		return result, nil
+	}
+	
+	// Add timestamp field to SELECT clause
+	if err := c.addTimestampToSelect(selectQuery, timestampField); err != nil {
+		return "", fmt.Errorf("failed to add timestamp to SELECT clause: %w", err)
+	}
+	
+	// Convert back to SQL string and restore escaped quotes
+	result := stmt.String()
+	result = strings.ReplaceAll(result, placeholder, "''")
+	
+	return result, nil
+}
+
+// hasTimestampInSelect checks if the timestamp field is already in the SELECT clause
+func (c *Client) hasTimestampInSelect(selectQuery *clickhouseparser.SelectQuery, timestampField string) bool {
+	if selectQuery.SelectItems == nil {
+		return false
+	}
+	
+	for _, selectItem := range selectQuery.SelectItems {
+		// Check for * wildcard - look at the Expr field of SelectItem
+		if ident, ok := selectItem.Expr.(*clickhouseparser.Ident); ok {
+			if ident.Name == "*" {
+				return true // * includes all columns including timestamp
+			}
+			if ident.Name == timestampField {
+				return true
+			}
+		}
+		
+		// Check for column references in other expression types
+		if colIdent, ok := selectItem.Expr.(*clickhouseparser.ColumnIdentifier); ok {
+			if colIdent.Column != nil && colIdent.Column.Name == timestampField {
+				return true
+			}
+		}
+	}
+	
+	return false
+}
+
+// addTimestampToSelect adds the timestamp field to the SELECT clause
+func (c *Client) addTimestampToSelect(selectQuery *clickhouseparser.SelectQuery, timestampField string) error {
+	if selectQuery.SelectItems == nil {
+		selectQuery.SelectItems = []*clickhouseparser.SelectItem{}
+	}
+	
+	// Create a new SelectItem for the timestamp field
+	timestampSelectItem := &clickhouseparser.SelectItem{
+		Expr: &clickhouseparser.Ident{
+			Name: timestampField,
+		},
+	}
+	
+	// Add to the select items list
+	selectQuery.SelectItems = append(selectQuery.SelectItems, timestampSelectItem)
+	
+	return nil
 }
