@@ -163,7 +163,7 @@ const navItems = [
               <div class="grid flex-1 text-left leading-tight ml-3">
                 <span class="truncate text-lg font-semibold">LogChef</span>
                 <span v-if="metaStore.version" class="truncate text-xs opacity-60">
-                  v{{ metaStore.version }}
+                  {{ metaStore.version }}
                 </span>
               </div>
             </div>
@@ -271,10 +271,10 @@ const navItems = [
                     <div v-if="sidebarOpen" class="grid flex-1 text-left text-sm leading-tight">
                       <span class="truncate font-semibold">{{
                         authStore.user?.full_name
-                        }}</span>
+                      }}</span>
                       <span class="truncate text-xs opacity-70">{{
                         authStore.user?.email
-                        }}</span>
+                      }}</span>
                     </div>
                     <ChevronsUpDown v-if="sidebarOpen" class="ml-auto size-4" />
                   </SidebarMenuButton>
@@ -291,10 +291,10 @@ const navItems = [
                       <div class="grid flex-1 text-left text-sm leading-tight">
                         <span class="truncate font-semibold">{{
                           authStore.user?.full_name
-                          }}</span>
+                        }}</span>
                         <span class="truncate text-xs">{{
                           authStore.user?.email
-                          }}</span>
+                        }}</span>
                       </div>
                     </div>
                   </DropdownMenuLabel>

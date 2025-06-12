@@ -314,18 +314,16 @@ const handleQueryExecution = async (debouncingKey = "") => {
 
     // Prevent execution if:
     // 1. A query is already executing, or
-    // 2. The last query executed too recently (within 300ms)
+    // 2. The last query executed too recently (within 300ms) - UNLESS it's a source change
     const lastExecTime = exploreStore.lastExecutionTimestamp || 0;
     const timeSinceLastQuery = now - lastExecTime;
+    const isSourceChange = debouncingKey.includes('source-change');
+    const shouldDebounce = lastExecTime > 0 && timeSinceLastQuery < 300 && !isSourceChange;
 
-    if (
-      isExecutingQuery.value ||
-      (lastExecTime > 0 && timeSinceLastQuery < 300)
-    ) {
+    if (isExecutingQuery.value || shouldDebounce) {
       console.log(
-        `LogExplorer: Skipping query execution - ${isExecutingQuery.value
-          ? "already executing"
-          : "too soon after previous query"
+        `LogExplorer: Skipping query execution - ${
+          isExecutingQuery.value ? "already executing" : "too soon after previous query"
         }`
       );
       return;
@@ -390,8 +388,8 @@ function resetQueriesForSourceChange() {
   // Reset group-by selection to "No Grouping"
   exploreStore.setGroupByField("__none__");
 
-  // Delegate to the store's resetQueryToDefaults method
-  exploreStore.resetQueryToDefaults();
+  // Use the new method that preserves time range and limit
+  exploreStore.resetQueryContentForSourceChange();
 }
 
 // Watch for source changes to fetch details AND saved queries
@@ -422,6 +420,17 @@ watch(
             if (currentSourceId.value === newSourceId) {
               // Check if still the same after timeout
               await sourcesStore.loadSourceDetails(newSourceId);
+              
+              // Execute query after source details are loaded if we have valid data
+              if (
+                sourcesStore.currentSourceDetails?.id === newSourceId &&
+                sourcesStore.hasValidCurrentSource &&
+                exploreStore.timeRange
+              ) {
+                console.log("LogExplorer: Executing query after source change and details loaded");
+                // Execute query immediately after source details are confirmed loaded
+                handleQueryExecution('source-change-query');
+              }
             }
           }, 50);
 
@@ -987,7 +996,8 @@ onMounted(async () => {
           !exploreStore.lastExecutionTimestamp &&  // No query executed yet
           exploreStore.sourceId &&
           exploreStore.timeRange &&
-          sourcesStore.currentSourceDetails?.id === exploreStore.sourceId
+          sourcesStore.currentSourceDetails?.id === exploreStore.sourceId &&
+          sourcesStore.hasValidCurrentSource // Ensure source is actually valid/connected
         ) {
           console.log("LogExplorer: Executing initial query on mount");
           await handleQueryExecution('initial-mount-query');
@@ -996,10 +1006,11 @@ onMounted(async () => {
             hasLastExecution: !!exploreStore.lastExecutionTimestamp,
             sourceId: exploreStore.sourceId,
             hasTimeRange: !!exploreStore.timeRange,
-            sourceDetailsLoaded: sourcesStore.currentSourceDetails?.id === exploreStore.sourceId
+            sourceDetailsLoaded: sourcesStore.currentSourceDetails?.id === exploreStore.sourceId,
+            hasValidSource: sourcesStore.hasValidCurrentSource
           });
         }
-      }, 300);
+      }, 500); // Increased timeout to allow more time for source details to load
     }
   } catch (error) {
     console.error("Error during LogExplorer mount:", error);

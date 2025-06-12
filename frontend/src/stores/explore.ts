@@ -390,44 +390,40 @@ export const useExploreStore = defineStore("explore", () => {
 
   // Actions
   function setSource(sourceId: number) {
-    // Clear the generated SQL immediately to prevent using previous source's SQL
+    // Clear query results to prevent showing old data
     state.data.value.generatedDisplaySql = null;
-    // Clear the logs and result data as well to avoid showing old data
     state.data.value.logs = [];
     state.data.value.columns = [];
     state.data.value.queryStats = DEFAULT_QUERY_STATS;
+    
+    // Clear histogram data and reset execution state
+    _clearHistogramData();
+    state.data.value.lastExecutionTimestamp = null;
+    state.data.value.lastExecutedState = undefined;
 
     // Set the new source ID
     state.data.value.sourceId = sourceId;
 
-    // Handle default query generation/clearing if necessary
+    // Generate appropriate SQL for new source
     const sourcesStore = useSourcesStore();
-    if (sourceId && sourcesStore.getCurrentSourceTableName) {
+    if (sourceId && sourcesStore.getCurrentSourceTableName && state.data.value.timeRange) {
+      const tableName = sourcesStore.getCurrentSourceTableName;
+      const tsField = sourcesStore.currentSourceDetails?._meta_ts_field || 'timestamp';
+
       if (state.data.value.activeMode === 'sql') {
-        // Generate default SQL when changing source in SQL mode
-        const tableName = sourcesStore.getCurrentSourceTableName;
-        const tsField = sourcesStore.currentSourceDetails?._meta_ts_field || 'timestamp';
-
-        if (state.data.value.timeRange) {
-          const result = QueryService.generateDefaultSQL({
-            tableName,
-            tsField,
-            timeRange: state.data.value.timeRange,
-            limit: state.data.value.limit
-          });
-
-          if (result.success) {
-            state.data.value.rawSql = result.sql;
-          }
-        }
+        const result = QueryService.generateDefaultSQL({
+          tableName,
+          tsField,
+          timeRange: state.data.value.timeRange,
+          limit: state.data.value.limit
+        });
+        state.data.value.rawSql = result.success ? result.sql : '';
       } else {
         // In LogchefQL mode, just clear the query
         state.data.value.logchefqlCode = '';
       }
     }
   }
-
-
 
   // Set time configuration (absolute or relative)
   function setTimeConfiguration(config: { absoluteRange?: { start: DateValue; end: DateValue }, relativeTime?: string }) {
@@ -634,6 +630,23 @@ export const useExploreStore = defineStore("explore", () => {
     }, 100);
   }
 
+  // Helper to clear histogram data
+  function _clearHistogramData() {
+    state.data.value.histogramData = [];
+    state.data.value.histogramError = null;
+    state.data.value.histogramGranularity = null;
+    state.data.value.isLoadingHistogram = false;
+  }
+
+  // Helper to clear query content
+  function _clearQueryContent() {
+    state.data.value.logchefqlCode = '';
+    state.data.value.rawSql = '';
+    state.data.value.activeMode = 'logchefql';
+    state.data.value.selectedQueryId = null;
+    state.data.value.activeSavedQueryName = null;
+  }
+
   // Reset query to defaults
   function resetQueryToDefaults() {
     // Create a default time range (last 15 minutes)
@@ -650,29 +663,16 @@ export const useExploreStore = defineStore("explore", () => {
     // Reset time range and relative time
     state.data.value.timeRange = timeRange;
     state.data.value.selectedRelativeTime = '15m';
-
-    // Reset limit
     state.data.value.limit = 100;
 
-    // Clear queries
-    state.data.value.logchefqlCode = '';
+    // Clear all query content
+    _clearQueryContent();
 
-    // Get source details for default SQL
+    // Generate default SQL
     const sourcesStore = useSourcesStore();
-    let tableName = sourcesStore.getCurrentSourceTableName;
-    if (!tableName && sourcesStore.currentSourceDetails?.connection?.table_name) {
-      tableName = sourcesStore.currentSourceDetails.connection.table_name;
-    }
-    if (!tableName && sourcesStore.currentSourceDetails?.connection?.database) {
-      tableName = `${sourcesStore.currentSourceDetails.connection.database}.vector_logs`;
-    }
-    if (!tableName) {
-      tableName = 'logs.vector_logs';
-    }
-
+    const tableName = sourcesStore.getCurrentSourceTableName || 'logs.vector_logs';
     const timestampField = sourcesStore.currentSourceDetails?._meta_ts_field || 'timestamp';
 
-    // Generate default SQL using SqlManager
     const result = SqlManager.generateDefaultSql({
       tableName,
       tsField: timestampField,
@@ -683,14 +683,37 @@ export const useExploreStore = defineStore("explore", () => {
 
     state.data.value.rawSql = result.success ? result.sql : '';
 
-    // Reset mode to defaults
-    state.data.value.activeMode = 'logchefql';
-
-    // Clear active saved query information
-    state.data.value.selectedQueryId = null;
-    state.data.value.activeSavedQueryName = null;
+    // Clear histogram data
+    _clearHistogramData();
 
     // Update last executed state
+    _updateLastExecutedState();
+  }
+
+  // Reset query content but preserve time range and limit for source changes
+  function resetQueryContentForSourceChange() {
+    // Clear query content
+    _clearQueryContent();
+
+    // Generate SQL for new source if time range exists
+    if (state.data.value.timeRange) {
+      const sourcesStore = useSourcesStore();
+      const tableName = sourcesStore.getCurrentSourceTableName || 'logs.vector_logs';
+      const timestampField = sourcesStore.currentSourceDetails?._meta_ts_field || 'timestamp';
+
+      const result = SqlManager.generateDefaultSql({
+        tableName,
+        tsField: timestampField,
+        timeRange: state.data.value.timeRange,
+        limit: state.data.value.limit,
+        timezone: state.data.value.selectedTimezoneIdentifier || undefined
+      });
+
+      state.data.value.rawSql = result.success ? result.sql : '';
+    }
+
+    // Clear histogram data and mark as dirty
+    _clearHistogramData();
     _updateLastExecutedState();
   }
 
@@ -701,6 +724,12 @@ export const useExploreStore = defineStore("explore", () => {
 
     // Reset timestamp at the start of execution attempt
     state.data.value.lastExecutionTimestamp = null;
+    
+    // Clear histogram data at the start of query execution to prevent stale data
+    state.data.value.histogramData = [];
+    state.data.value.histogramError = null;
+    state.data.value.histogramGranularity = null;
+    
     const operationKey = 'executeQuery';
 
     return await state.withLoading(operationKey, async () => {
@@ -930,25 +959,31 @@ export const useExploreStore = defineStore("explore", () => {
 
   // Add resetState function
   function resetState() {
+    // Preserve certain values during reset
+    const preserved = {
+      sourceId: state.data.value.sourceId,
+      limit: state.data.value.limit,
+      timeRange: state.data.value.timeRange,
+      selectedRelativeTime: state.data.value.selectedRelativeTime,
+      activeMode: state.data.value.activeMode,
+      selectedTimezoneIdentifier: state.data.value.selectedTimezoneIdentifier,
+      queryTimeout: state.data.value.queryTimeout,
+    };
+
     state.data.value = {
       logs: [],
       columns: [],
       queryStats: DEFAULT_QUERY_STATS,
-      sourceId: state.data.value.sourceId, // Preserve source
-      limit: state.data.value.limit, // Preserve limit
-      timeRange: state.data.value.timeRange, // Preserve time range
-      selectedRelativeTime: state.data.value.selectedRelativeTime, // Preserve relative time selection
+      ...preserved,
       filterConditions: [],
       rawSql: "",
       logchefqlCode: "",
-      activeMode: state.data.value.activeMode,
       lastExecutedState: undefined,
       lastExecutionTimestamp: null,
-      selectedQueryId: null, // Reset selectedQueryId
+      selectedQueryId: null,
       activeSavedQueryName: null,
       groupByField: null,
-      selectedTimezoneIdentifier: state.data.value.selectedTimezoneIdentifier, // Preserve timezone identifier
-      generatedDisplaySql: null, // Reset generatedDisplaySql
+      generatedDisplaySql: null,
       isGeneratingAISQL: false,
       aiSqlError: null,
       generatedAiSql: null,
@@ -1094,6 +1129,7 @@ export const useExploreStore = defineStore("explore", () => {
 
       // Validate source details are loaded
       if (!sourcesStore.currentSourceDetails || sourcesStore.currentSourceDetails.id !== state.data.value.sourceId) {
+        console.warn(`Histogram: Source details not loaded or mismatch. Have ID ${sourcesStore.currentSourceDetails?.id}, need ID ${state.data.value.sourceId}`);
         state.data.value.histogramError = "Source details not fully loaded for histogram.";
         state.data.value.isLoadingHistogram = false;
         return {
@@ -1101,6 +1137,21 @@ export const useExploreStore = defineStore("explore", () => {
           error: {
             status: "error",
             message: "Source details not fully loaded for histogram.",
+            error_type: "ValidationError"
+          }
+        };
+      }
+      
+      // Validate source is connected and valid
+      if (!sourcesStore.hasValidCurrentSource) {
+        console.warn(`Histogram: Source ${state.data.value.sourceId} is not connected or valid`);
+        state.data.value.histogramError = "Source is not connected or valid.";
+        state.data.value.isLoadingHistogram = false;
+        return {
+          success: false,
+          error: {
+            status: "error", 
+            message: "Source is not connected or valid.",
             error_type: "ValidationError"
           }
         };
@@ -1314,6 +1365,7 @@ export const useExploreStore = defineStore("explore", () => {
     setActiveSavedQueryName,
     setRelativeTimeRange,
     resetQueryToDefaults,
+    resetQueryContentForSourceChange,
     initializeFromUrl,
     executeQuery,
     getLogContext,
