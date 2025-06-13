@@ -3,9 +3,26 @@ title: AI-Powered SQL Generation
 description: Effortlessly query your logs using natural language with LogChef's AI capabilities.
 ---
 
+import { Card, CardGrid } from "@astrojs/starlight/components";
+
 LogChef leverages the power of Large Language Models (LLMs) to translate your natural language questions about your logs directly into ClickHouse SQL queries. This feature is designed to lower the barrier to entry for log exploration, allowing users less familiar with SQL to gain insights quickly, and speeding up query construction for experienced users.
 
 Simply type your query in plain English, and LogChef will do its best to generate the appropriate SQL to fetch the data you need from your connected ClickHouse log sources.
+
+<CardGrid stagger>
+  <Card title="Natural Language to SQL" icon="translate">
+    Transform plain English questions into optimized ClickHouse SQL queries instantly.
+  </Card>
+  <Card title="Schema-Aware Generation" icon="document">
+    AI understands your log structure and generates queries using actual field names and types.
+  </Card>
+  <Card title="Multiple Provider Support" icon="setting">
+    Works with OpenAI, OpenRouter, Azure OpenAI, and other OpenAI-compatible APIs.
+  </Card>
+  <Card title="Context-Aware Suggestions" icon="lightbulb">
+    AI considers your current query context to provide better suggestions and refinements.
+  </Card>
+</CardGrid>
 
 ## How it Works
 
@@ -80,6 +97,105 @@ Below are examples of natural language queries you can use with LogChef, demonst
 - **Use Natural Language:** Don't try to force SQL-like syntax. Plain, clear English works best.
 - **Iterate:** If the first query doesn't give you exactly what you want, try rephrasing it or adding more detail.
 
+## Configuration
+
+To enable AI SQL generation, configure the following settings in your `config.toml`:
+
+```toml
+[ai]
+# Enable AI features
+enabled = true
+
+# OpenAI API key (required)
+api_key = "sk-your_api_key_here"
+
+# Model to use (default: gpt-4o)
+model = "gpt-4o"
+
+# Optional: Custom API endpoint for OpenRouter, Azure OpenAI, etc.
+# base_url = "https://openrouter.ai/api/v1"
+
+# Model parameters
+max_tokens = 1024
+temperature = 0.1
+```
+
+### Supported Providers
+
+The AI integration supports OpenAI-compatible APIs including:
+
+- **OpenAI**: Standard OpenAI API (default)
+- **OpenRouter**: Access to multiple models via `https://openrouter.ai/api/v1`
+- **Azure OpenAI**: Microsoft's OpenAI service
+- **Local Models**: Any OpenAI-compatible endpoint
+
+### Environment Variables
+
+For production deployments, use environment variables for sensitive configuration:
+
+```bash
+export LOGCHEF_AI__ENABLED=true
+export LOGCHEF_AI__API_KEY="sk-your_api_key_here"
+export LOGCHEF_AI__MODEL="gpt-4o"
+```
+
+## Using the AI Assistant
+
+### In the Query Editor
+
+1. Navigate to any log source in your team
+2. Look for the AI assistant button in the query editor
+3. Type your natural language question
+4. Click "Generate SQL" to get a ClickHouse query
+5. Review and execute the generated query
+
+### Example Workflow
+
+```
+Natural Language: "Show me all error logs from the last 6 hours"
+
+Generated SQL:
+SELECT *
+FROM logs_table
+WHERE severity_text = 'ERROR'
+  AND timestamp >= now() - INTERVAL 6 HOUR
+ORDER BY timestamp DESC
+LIMIT 100
+```
+
+### Context-Aware Suggestions
+
+If you already have a query in the editor, the AI will consider it as context:
+
+```
+Current Query: SELECT * FROM logs WHERE service = 'api-gateway'
+Natural Language: "Add a filter for errors in the last hour"
+
+Enhanced SQL:
+SELECT *
+FROM logs
+WHERE service = 'api-gateway'
+  AND severity_text = 'ERROR'
+  AND timestamp >= now() - INTERVAL 1 HOUR
+ORDER BY timestamp DESC
+```
+
+## MCP Integration
+
+For AI assistant integration outside the web interface, use the [LogChef MCP server](/integration/mcp-server). This enables natural language log analysis through AI assistants like Claude Desktop:
+
+- Ask questions about your logs in plain English
+- AI assistants understand your log schema automatically
+- Query across multiple sources and teams
+- Create and manage saved queries through conversation
+
 ## A Note on Accuracy
 
 While powerful, AI-generated SQL should always be reviewed, especially for critical or complex queries. The feature is a tool to assist and accelerate your log exploration, not a complete replacement for understanding your data and query logic.
+
+### Best Practices
+
+- **Review Generated Queries**: Always check the SQL before execution
+- **Start Simple**: Begin with basic queries and add complexity gradually
+- **Provide Context**: Mention specific field names, time ranges, and conditions
+- **Iterate**: Refine your natural language prompts based on results

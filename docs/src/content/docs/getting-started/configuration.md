@@ -20,6 +20,9 @@ host = "0.0.0.0"
 # URL of the frontend application
 # Leave empty in production, used only in development
 frontend_url = ""
+
+# HTTP server timeout for requests (default: 30s)
+http_server_timeout = "30s"
 ```
 
 ## Database Configuration
@@ -87,9 +90,9 @@ Configure application logging:
 level = "info"
 ```
 
-## AI SQL Generation (OpenAI)
+## AI SQL Generation
 
-Configure settings for the AI-powered SQL generation feature using OpenAI.
+Configure settings for AI-powered SQL generation using OpenAI-compatible APIs.
 
 ```toml
 [ai]
@@ -97,26 +100,50 @@ Configure settings for the AI-powered SQL generation feature using OpenAI.
 enabled = true
 
 # --- API Endpoint Configuration ---
-# Optional: Base URL for the OpenAI API compatible endpoint.
-# Useful for proxying or using services like Azure OpenAI, OpenRouter.
-# (default: uses the standard OpenAI API endpoint)
-# base_url = "https://your-proxy.com/v1"
+# Optional: Base URL for OpenAI-compatible endpoints
+# Leave empty for standard OpenAI API
+# Examples:
+# - OpenRouter: "https://openrouter.ai/api/v1"
+# - Azure OpenAI: "https://your-resource.openai.azure.com/"
+# - Custom proxy: "https://your-proxy.com/v1"
+base_url = ""
 
-# OpenAI API Key. Required if AI features are enabled.
-# Can also be set via LOGCHEF_AI__API_KEY environment variable.
-api_key = "sk-your_openai_api_key"
+# OpenAI API Key (required if AI features are enabled)
+# Can also be set via LOGCHEF_AI__API_KEY environment variable
+api_key = "sk-your_api_key_here"
 
 # --- Model Parameters ---
 # Model to use for SQL generation (default: "gpt-4o")
-# Examples: "gpt-4o", "gpt-3.5-turbo"
+# Popular options: "gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"
+# For OpenRouter: model names like "openai/gpt-4o", "anthropic/claude-3-sonnet"
 model = "gpt-4o"
 
-# Maximum number of tokens to generate in the SQL query (default: 1024)
+# Maximum number of tokens to generate (default: 1024)
 max_tokens = 1024
 
-# Temperature for generation (0.0-1.0). Lower is more deterministic (default: 0.1)
+# Temperature for generation (0.0-1.0, lower is more deterministic, default: 0.1)
 temperature = 0.1
 ```
+
+### Supported Providers
+
+The AI integration works with any OpenAI-compatible API:
+
+- **OpenAI**: Leave `base_url` empty (default)
+- **OpenRouter**: Set `base_url = "https://openrouter.ai/api/v1"`
+- **Azure OpenAI**: Configure your Azure endpoint
+- **Local Models**: Point to your local OpenAI-compatible server
+
+### API Token Requirements
+
+Your API token needs appropriate permissions for the model you're using. For OpenRouter, make sure your token has access to the specific model.
+
+### Security Considerations
+
+- Store API keys in environment variables for production
+- Use the least privileged API tokens possible
+- Monitor API usage and costs
+- Consider rate limiting for high-traffic deployments
 
 ## Environment Variables
 
@@ -170,6 +197,7 @@ For production deployments, ensure you:
 [server]
 port = 8125
 host = "0.0.0.0"
+http_server_timeout = "30s"
 
 [sqlite]
 path = "/data/logchef.db"
@@ -189,15 +217,11 @@ max_concurrent_sessions = 1
 [logging]
 level = "info"
 
-# Example for AI features in production (API key should be set via env var)
+# AI features configuration (API key should be set via env var)
 [ai]
 enabled = true
-
-# --- API Endpoint Configuration ---
-# base_url = ""
-# api_key = "" # Prefer LOGCHEF_AI__API_KEY for sensitive data
-
-# --- Model Parameters ---
+# base_url = ""  # Leave empty for OpenAI, or set for other providers
+# api_key = ""   # Use LOGCHEF_AI__API_KEY environment variable
 model = "gpt-4o"
 max_tokens = 1024
 temperature = 0.1

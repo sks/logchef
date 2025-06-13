@@ -18,6 +18,8 @@ Logchef is a lightweight, powerful log analytics platform designed for efficient
 
 - **Schema-Agnostic Log Exploration**: Query any ClickHouse table without predefined schema constraints.
 - **Flexible Query Options**: Supports both simple search syntax and full ClickHouse SQL for advanced analysis.
+- **AI-Powered SQL Generation**: Transform natural language questions into ClickHouse SQL queries using OpenAI-compatible models.
+- **MCP Integration**: Model Context Protocol server for seamless AI assistant integration ([logchef-mcp](https://github.com/mr-karan/logchef-mcp)).
 - **High Performance**: Engineered for fast query execution on large datasets with minimal resource consumption.
 - **Team-Based Access Control**: Provides secure, multi-tenant log access with configurable, fine-grained permissions.
 - **Single Binary Deployment**: Simplifies installation, deployment, and management.
