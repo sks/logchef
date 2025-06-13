@@ -171,34 +171,6 @@ func (s *Server) handleValidateSourceConnection(c *fiber.Ctx) error {
 
 // --- User Source Access Handlers ---
 
-// handleGetSource retrieves details for a specific source by ID.
-// URL: GET /api/v1/sources/:sourceID
-// Requires: User must have access to the source via team membership (checked by requireSourceAccess middleware).
-func (s *Server) handleGetSource(c *fiber.Ctx) error {
-	// Source ID access is validated by middleware requireSourceAccess or requireAdmin.
-	sourceIDStr := c.Params("sourceID")
-	if sourceIDStr == "" {
-		return SendErrorWithType(c, fiber.StatusBadRequest, "Source ID is required", models.ValidationErrorType)
-	}
-	sourceID, err := core.ParseSourceID(sourceIDStr)
-	if err != nil {
-		return SendErrorWithType(c, fiber.StatusBadRequest, err.Error(), models.ValidationErrorType)
-	}
-
-	// Use core function to get detailed source info.
-	src, err := core.GetSource(c.Context(), s.sqlite, s.clickhouse, s.log, sourceID)
-	if err != nil {
-		if errors.Is(err, core.ErrSourceNotFound) {
-			return SendErrorWithType(c, fiber.StatusNotFound, "Source not found", models.NotFoundErrorType)
-		}
-		s.log.Error("failed to get source via core function", slog.Any("error", err), "source_id", sourceID)
-		return SendErrorWithType(c, fiber.StatusInternalServerError, "Error getting source", models.DatabaseErrorType)
-	}
-
-	// Convert to response object.
-	return SendSuccess(c, fiber.StatusOK, src.ToResponse())
-}
-
 // handleGetSourceStats retrieves table and column statistics for a specific source.
 // URL: GET /api/v1/sources/:sourceID/stats
 // Requires: User must have access to the source via team membership (checked by requireSourceAccess middleware).
@@ -234,34 +206,6 @@ func (s *Server) handleGetSourceStats(c *fiber.Ctx) error {
 	}
 
 	return SendSuccess(c, fiber.StatusOK, stats)
-}
-
-// handleListUserSources retrieves all sources accessible by the authenticated user.
-// URL: GET /api/v1/sources
-// Requires: User authentication
-// This includes sources from all teams the user is a member of.
-func (s *Server) handleListUserSources(c *fiber.Ctx) error {
-	user := c.Locals("user").(*models.User)
-	if user == nil {
-		// Should be caught by requireAuth middleware, but double-check.
-		return SendErrorWithType(c, fiber.StatusUnauthorized, "User context not found", models.AuthenticationErrorType)
-	}
-
-	sources, err := core.ListSourcesForUser(c.Context(), s.sqlite, user.ID)
-	if err != nil {
-		s.log.Error("failed to list sources for user via core function", "error", err, "user_id", user.ID)
-		return SendErrorWithType(c, fiber.StatusInternalServerError, "Failed to retrieve accessible sources", models.GeneralErrorType)
-	}
-
-	// Convert to response objects to hide sensitive connection details.
-	sourceResponses := make([]*models.SourceResponse, 0, len(sources))
-	for _, src := range sources {
-		if src != nil { // Add nil check for safety
-			sourceResponses = append(sourceResponses, src.ToResponse())
-		}
-	}
-
-	return SendSuccess(c, fiber.StatusOK, sourceResponses)
 }
 
 // handleGetTeamSourceStats handles GET /teams/:teamID/sources/:sourceID/stats

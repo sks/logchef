@@ -73,6 +73,8 @@ func New(opts ServerOptions) *Server {
 	app := fiber.New(fiber.Config{
 		AppName:               "LogChef API v1",
 		DisableStartupMessage: true, // Avoid default Fiber banner.
+		ReadTimeout:           opts.Config.Server.HTTPServerTimeout,
+		WriteTimeout:          opts.Config.Server.HTTPServerTimeout,
 		ErrorHandler: func(c *fiber.Ctx, err error) error {
 			code := fiber.StatusInternalServerError
 			if e, ok := err.(*fiber.Error); ok {

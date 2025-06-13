@@ -10,7 +10,6 @@ import (
 	"github.com/mr-karan/logchef/pkg/models"
 
 	"github.com/gofiber/fiber/v2"
-	// "github.com/mr-karan/logchef/internal/saved_queries" // Removed
 )
 
 // handleListTeamSourceCollections retrieves saved queries (collections) for a specific team and source.
@@ -269,7 +268,3 @@ func (s *Server) handleDeleteTeamSourceCollection(c *fiber.Ctx) error {
 
 	return SendSuccess(c, fiber.StatusOK, fiber.Map{"message": "Collection deleted successfully"})
 }
-
-// Note: handleListUserSources moved to source_handlers.go
-
-// Note: handleListUserCollections removed as it's handled by handleListTeamSourceCollections now with filters.
