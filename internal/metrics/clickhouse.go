@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/mr-karan/logchef/pkg/models"
@@ -124,6 +125,7 @@ func (h *MetricsQueryHook) AfterQuery(ctx context.Context, query string, err err
 	// Determine success and error type
 	success := err == nil
 	errorType := DetermineErrorType(err)
+
 
 	// Check if it was a timeout
 	timedOut := contains(trimAndLower(errorType), "timeout")
