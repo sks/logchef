@@ -13,6 +13,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+
+import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
@@ -271,10 +278,10 @@ const navItems = [
                     <div v-if="sidebarOpen" class="grid flex-1 text-left text-sm leading-tight">
                       <span class="truncate font-semibold">{{
                         authStore.user?.full_name
-                      }}</span>
+                        }}</span>
                       <span class="truncate text-xs opacity-70">{{
                         authStore.user?.email
-                      }}</span>
+                        }}</span>
                     </div>
                     <ChevronsUpDown v-if="sidebarOpen" class="ml-auto size-4" />
                   </SidebarMenuButton>
@@ -291,10 +298,10 @@ const navItems = [
                       <div class="grid flex-1 text-left text-sm leading-tight">
                         <span class="truncate font-semibold">{{
                           authStore.user?.full_name
-                        }}</span>
+                          }}</span>
                         <span class="truncate text-xs">{{
                           authStore.user?.email
-                        }}</span>
+                          }}</span>
                       </div>
                     </div>
                   </DropdownMenuLabel>
@@ -302,24 +309,51 @@ const navItems = [
                   <DropdownMenuLabel>Theme</DropdownMenuLabel>
                   <div class="px-2 py-1.5">
                     <div class="flex items-center justify-between space-x-2">
-                      <Button variant="outline" size="icon" class="w-9 px-0 flex-1 rounded-md" :class="{
-                        'bg-primary text-primary-foreground':
-                          themeStore.preference === 'light',
-                      }" @click="themeStore.setTheme('light')">
-                        <Sun class="h-5 w-5" />
-                      </Button>
-                      <Button variant="outline" size="icon" class="w-9 px-0 flex-1 rounded-md" :class="{
-                        'bg-primary text-primary-foreground':
-                          themeStore.preference === 'dark',
-                      }" @click="themeStore.setTheme('dark')">
-                        <Moon class="h-5 w-5" />
-                      </Button>
-                      <Button variant="outline" size="icon" class="w-9 px-0 flex-1 rounded-md" :class="{
-                        'bg-primary text-primary-foreground':
-                          themeStore.preference === 'auto',
-                      }" @click="themeStore.setTheme('auto')">
-                        <Monitor class="h-5 w-5" />
-                      </Button>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button variant="outline" size="icon" class="w-9 px-0 flex-1 rounded-md" :class="{
+                              'bg-primary text-primary-foreground':
+                                themeStore.preference === 'light',
+                            }" @click="themeStore.setTheme('light')">
+                              <Sun class="h-5 w-5" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Light mode</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button variant="outline" size="icon" class="w-9 px-0 flex-1 rounded-md" :class="{
+                              'bg-primary text-primary-foreground':
+                                themeStore.preference === 'dark',
+                            }" @click="themeStore.setTheme('dark')">
+                              <Moon class="h-5 w-5" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Dark mode</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button variant="outline" size="icon" class="w-9 px-0 flex-1 rounded-md" :class="{
+                              'bg-primary text-primary-foreground':
+                                themeStore.preference === 'auto',
+                            }" @click="themeStore.setTheme('auto')">
+                              <Monitor class="h-5 w-5" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>System preference</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
                     </div>
                   </div>
                   <DropdownMenuSeparator />

@@ -1,5 +1,5 @@
 <template>
-  <div class="query-editor">
+  <div :class="['query-editor', props.class]">
     <!-- Header Bar (Keep existing structure) -->
     <div class="flex items-center justify-between bg-muted/40 rounded-t-md px-3 py-1.5 border border-b-0">
       <div class="flex items-center gap-3">
@@ -51,21 +51,6 @@
       </div>
 
       <div class="flex items-center gap-2">
-        <!-- AI Assistant Toggle - Only show in SQL mode -->
-        <TooltipProvider v-if="props.activeMode === 'clickhouse-sql'">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="outline" size="sm" class="h-7 gap-1"
-                :class="{ 'bg-primary/10 text-primary border-primary': showAIInput }" @click="toggleAIInput">
-                <WandSparkles class="h-3.5 w-3.5" />
-                <span class="text-xs">AI</span>
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              <p>{{ showAIInput ? "Hide" : "Show" }} AI Assistant</p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
         <!-- New: New Query Button - Only show when editing a saved query -->
         <TooltipProvider v-if="isEditingExistingQuery">
           <Tooltip>
@@ -100,7 +85,7 @@
         <!-- Saved Queries Dropdown -->
         <SavedQueriesDropdown :selected-source-id="props.sourceId" :selected-team-id="props.teamId"
           @select-saved-query="(query: SavedTeamQuery) => $emit('select-saved-query', query)"
-          @save="$emit('save-query')" @save-as-new="$emit('save-query-as-new')" class="h-8" />
+          @save="$emit('save-query')" class="h-8" />
 
         <!-- Help Icon -->
         <HoverCard :open-delay="200">
@@ -169,6 +154,54 @@
       </div>
     </div>
 
+    <!-- Compact Variable Editor -->
+    <div v-if="allVariables && allVariables.length > 0" class="mb-3">
+      <!-- Variables Header -->
+      <div class="flex items-center justify-between mb-2 px-1">
+        <div class="flex items-center gap-2">
+          <div class="w-1 h-3 bg-primary rounded-full"></div>
+          <span class="text-xs font-medium text-foreground">Variables</span>
+          <span class="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+            {{ allVariables.length }}
+          </span>
+        </div>
+        <Button variant="ghost" size="sm" class="h-6 px-2 text-xs" @click="openAllVariableSettings"
+          title="Configure variables">
+          <Settings class="h-3 w-3 mr-1" />
+          Configure
+        </Button>
+      </div>
+
+      <!-- Compact Variables List -->
+      <div class="bg-muted/20 border border-border/30 rounded-md p-2">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
+          <div v-for="variable in allVariables" :key="variable.name" class="flex items-center gap-2 min-w-0">
+            <!-- Variable indicator and label -->
+            <div class="flex items-center gap-1.5 min-w-0 flex-shrink-0">
+              <div class="w-1.5 h-1.5 bg-primary/60 rounded-full flex-shrink-0"></div>
+              <Label :for="`var-${variable.name}`"
+                class="text-xs font-medium text-foreground truncate cursor-pointer min-w-0"
+                :title="variable.label || variable.name">
+                {{ variable.label || variable.name }}
+              </Label>
+              <span class="text-xs px-1 py-0.5 bg-muted text-muted-foreground rounded font-mono flex-shrink-0">
+                {{ variable.type[0] }}
+              </span>
+            </div>
+
+            <!-- Compact input -->
+            <Input :id="`var-${variable.name}`" v-model="variable.value" :type="inputTypeFor(variable.type)"
+              :placeholder="getPlaceholderForType(variable.type)"
+              class="h-7 text-xs flex-1 min-w-0 border-muted-foreground/20 focus:border-primary/50 transition-colors"
+              :class="{
+                'border-primary/30 bg-primary/5': variable.value,
+                'border-dashed': !variable.value
+              }" />
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Monaco Editor Container -->
     <div class="editor-wrapper" :class="{ 'is-focused': editorFocused }"
       v-show="isEditorVisible || props.activeMode === 'logchefql'">
@@ -218,48 +251,125 @@
         </span>
       </span>
     </div>
-
-    <!-- AI Input Section -->
-    <div v-if="showAIInput && props.activeMode === 'clickhouse-sql'"
-      class="mt-3 border border-border rounded-md bg-card/50">
-      <div class="p-3 border-b bg-muted/40">
-        <div class="flex items-center gap-2 text-sm font-medium">
-          <WandSparkles class="h-4 w-4 text-primary" />
-          <span>AI SQL Assistant</span>
-        </div>
-        <p class="text-xs text-muted-foreground mt-1">
-          Describe the data you want to retrieve in natural language
-        </p>
-      </div>
-      <div class="p-3 space-y-3">
-        <!-- Natural Language Input -->
-        <div class="space-y-2">
-          <Textarea v-model="naturalLanguageQuery" :disabled="isGeneratingSQL"
-            placeholder="Example: Show me all error logs from the last hour, excluding database-related errors"
-            class="resize-none h-20 text-sm" @keydown="onAIKeyDown" />
-        </div>
-        <!-- Action Buttons -->
-        <div class="flex items-center justify-between">
-          <div class="text-xs text-muted-foreground">
-            Press Ctrl+Enter to generate SQL
-          </div>
-          <div class="flex gap-2">
-            <Button variant="outline" size="sm" @click="showAIInput = false">
-              Cancel
-            </Button>
-            <Button @click="handleGenerateSQL" :disabled="!naturalLanguageQuery.trim() || isGeneratingSQL" size="sm">
-              <span v-if="isGeneratingSQL" class="flex items-center gap-1.5">
-                <span
-                  class="h-3 w-3 border-2 border-current border-t-transparent rounded-full inline-block animate-spin"></span>
-                Generating...
-              </span>
-              <span v-else>Generate SQL</span>
-            </Button>
-          </div>
-        </div>
-      </div>
-    </div>
   </div>
+
+  <!-- Enhanced Variable Settings Sheet -->
+  <Sheet :open="showVariablesConfig" @update:open="(open) => !open && closeDrawer()">
+    <SheetContent class="w-[480px] max-w-[90vw]">
+      <SheetHeader class="pb-6">
+        <SheetTitle class="text-lg flex items-center gap-2">
+          <div class="w-2 h-2 bg-primary rounded-full"></div>
+          <Settings class="h-5 w-5" />
+          Variable Configuration
+        </SheetTitle>
+        <SheetDescription class="text-sm">
+          Configure variables used in your query. Variables are replaced with actual values when the query runs.
+        </SheetDescription>
+      </SheetHeader>
+
+      <div v-if="allVariables && allVariables.length > 0" class="space-y-6 max-h-[70vh] overflow-y-auto pr-2">
+        <div v-for="(variable, index) in allVariables" :key="variable.name" class="space-y-4">
+          <!-- Enhanced Variable Card -->
+          <div class="border border-border rounded-lg p-4 bg-card hover:shadow-sm transition-all duration-200">
+            <!-- Variable Header -->
+            <div class="flex items-center justify-between mb-4">
+              <div class="flex items-center gap-3">
+                <div class="w-2 h-2 bg-primary/60 rounded-full flex-shrink-0"></div>
+                <div>
+                  <h4 class="font-medium text-foreground">{{ variable.name }}</h4>
+                  <p class="text-xs text-muted-foreground">Variable {{ index + 1 }} of {{ allVariables.length }}</p>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-xs px-2 py-1 bg-muted text-muted-foreground rounded font-mono">
+                  {{ variable.type }}
+                </span>
+              </div>
+            </div>
+
+            <!-- Variable Configuration -->
+            <div class="space-y-4">
+              <!-- Variable Type -->
+              <div class="space-y-2">
+                <Label class="text-sm font-medium flex items-center gap-2">
+                  <div class="w-1 h-1 bg-muted-foreground/40 rounded-full"></div>
+                  Variable Type
+                </Label>
+                <Select v-model="variable.type" @update:model-value="() => updateVariableType(variable)">
+                  <SelectTrigger class="h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="text">
+                      <div class="flex items-center gap-2">
+                        <div class="w-2 h-2 bg-blue-500 rounded-full"></div>
+                        Text
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="number">
+                      <div class="flex items-center gap-2">
+                        <div class="w-2 h-2 bg-green-500 rounded-full"></div>
+                        Number
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="date">
+                      <div class="flex items-center gap-2">
+                        <div class="w-2 h-2 bg-purple-500 rounded-full"></div>
+                        Date
+                      </div>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <!-- Display Label -->
+              <div class="space-y-2">
+                <Label class="text-sm font-medium flex items-center gap-2">
+                  <div class="w-1 h-1 bg-muted-foreground/40 rounded-full"></div>
+                  Display Label
+                </Label>
+                <Input v-model="variable.label" placeholder="Enter display name..." class="h-9"
+                  @input="() => variableStore.upsertVariable(variable)" />
+              </div>
+
+              <!-- Current Value Preview -->
+              <div class="space-y-2">
+                <Label class="text-sm font-medium flex items-center gap-2">
+                  <div class="w-1 h-1 bg-muted-foreground/40 rounded-full"></div>
+                  Current Value
+                </Label>
+                <div class="px-3 py-2 bg-muted/30 rounded-md border text-sm font-mono min-h-[36px] flex items-center">
+                  <span v-if="variable.value" class="text-foreground">
+                    {{ formatVariableValue(variable) }}
+                  </span>
+                  <span v-else class="text-muted-foreground italic">
+                    No value set
+                  </span>
+                </div>
+
+              </div>
+            </div>
+          </div>
+
+
+        </div>
+      </div>
+
+      <!-- Enhanced Empty State -->
+      <div v-else class="text-center py-12 text-muted-foreground">
+        <div class="w-12 h-12 bg-muted/50 rounded-full flex items-center justify-center mx-auto mb-4">
+          <Settings class="h-6 w-6 opacity-50" />
+        </div>
+        <p class="text-sm font-medium mb-2">No variables found in your query</p>
+        <p class="text-xs">Use <code class="bg-muted px-1.5 py-0.5 rounded">&#123;&#123;variable_name&#125;&#125;</code>
+          syntax to create variables</p>
+        <div class="mt-4 text-xs text-muted-foreground/60">
+          <p>Example: <code class="bg-muted px-1.5 py-0.5 rounded">namespace=&#123;&#123;env&#125;&#125;</code></p>
+        </div>
+      </div>
+    </SheetContent>
+  </Sheet>
+
 </template>
 
 <script setup lang="ts">
@@ -291,7 +401,6 @@ import {
   Code2,
   Eye,
   EyeOff,
-  WandSparkles,
 } from "lucide-vue-next";
 import {
   HoverCard,
@@ -303,13 +412,29 @@ import SavedQueriesDropdown from "@/components/collections/SavedQueriesDropdown.
 import type { SavedTeamQuery } from "@/api/savedQueries";
 import { useRoute, useRouter } from "vue-router";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Settings } from "lucide-vue-next";
 
 import {
   initMonacoSetup,
@@ -335,10 +460,12 @@ import {
   CLICKHOUSE_FUNCTIONS,
   SQL_TYPES,
 } from "@/utils/clickhouse-sql";
+import { storeToRefs } from 'pinia';
 import { useExploreStore } from "@/stores/explore";
+import type { VariableState as VariableSetting } from '@/stores/variables';
+import { useVariableStore } from '@/stores/variables';
 import { QueryService } from "@/services/QueryService";
-import { useExploreUrlSync } from "@/composables/useExploreUrlSync";
-
+import { useVariables } from "@/composables/useVariables.ts";
 // Keep other necessary imports like types...
 // --- Types ---
 type EditorMode = "logchefql" | "clickhouse-sql";
@@ -371,6 +498,8 @@ const props = defineProps({
   // SavedQueriesDropdown props
   teamId: { type: Number, required: true },
   useCurrentTeam: { type: Boolean, default: true },
+  // Additional props to prevent Vue warnings
+  class: { type: String, default: "" },
 });
 
 const emit = defineEmits<{
@@ -381,14 +510,17 @@ const emit = defineEmits<{
   // SavedQueries events
   (e: "select-saved-query", query: SavedTeamQuery): void;
   (e: "save-query"): void;
-  (e: "save-query-as-new"): void;
-  // AI events
-  (e: "generate-ai-sql", data: { naturalLanguageQuery: string }): void;
+  // Additional emits to prevent Vue warnings
+  (e: "saveQueryAsNew"): void;
+  (e: "generateAiSql", payload: any): void;
 }>();
 
 // --- Core State ---
 const isDark = useDark();
 const exploreStore = useExploreStore();
+// Access variable store
+const variableStore = useVariableStore();
+
 const editorRef = shallowRef<MonacoEditor | null>(null);
 const editorContent = ref(props.value || ""); // Initialize with prop value
 const editorFocused = ref(false);
@@ -397,12 +529,13 @@ const isProgrammaticChange = ref(false); // Flag to prevent update loops
 const isDisposing = ref(false); // Flag to prevent operations during disposal
 const activeDisposables = ref<MonacoDisposable[]>([]); // Track all disposables
 const isEditorVisible = ref(true); // New state for SQL editor visibility
-const showAIInput = ref(false); // State for AI input visibility
-const naturalLanguageQuery = ref(""); // AI natural language input
 
-// Get AI loading state from the store
-const { exploreStore: storeForAI } = { exploreStore: useExploreStore() };
-const isGeneratingSQL = computed(() => storeForAI.isGeneratingAISQL);
+// dynamic variables list
+const { allVariables } = storeToRefs(variableStore);
+// Selected variable for sheet editing
+const selectedVariable = ref<VariableSetting | null>(null);
+// Show variables configuration panel
+const showVariablesConfig = ref(false);
 
 // --- Computed Properties ---
 const theme = computed(() => (isDark.value ? "logchef-dark" : "logchef-light"));
@@ -415,8 +548,7 @@ const currentPlaceholder = computed(() => {
 
   return props.activeMode === "logchefql"
     ? 'Enter search criteria (e.g., lvl="ERROR" and namespace~"sys")'
-    : `Enter ClickHouse SQL query (e.g., SELECT * FROM ${props.tableName || "your_table"
-    } WHERE ...)`;
+    : `Enter ClickHouse SQL query (e.g., SELECT * FROM ${props.tableName || "your_table"} WHERE ...)`;
 });
 
 const editorHeight = computed(() => {
@@ -538,36 +670,30 @@ const handleMount = (editor: MonacoEditor) => {
   focusEditor(true);
 };
 
-const { debouncedSyncUrlFromState } = useExploreUrlSync();
-
+// Handle editor changes (e.g., user typing query with {{variable}})
 const handleEditorChange = (value: string | undefined) => {
   if (isProgrammaticChange.value || isDisposing.value) {
-    return; // Prevent feedback loop or changes during disposal
+    return;
   }
 
   const currentQuery = value ?? "";
-  editorContent.value = currentQuery; // Update internal state FIRST
+  editorContent.value = currentQuery;
 
-  // Update store based on current mode
   if (props.activeMode === "logchefql") {
     exploreStore.setLogchefqlCode(currentQuery);
   } else {
     exploreStore.setRawSql(currentQuery);
   }
 
-  // Clear validation errors on manual input
   validationError.value = null;
 
-  // Emit change event - this was manual user input, not URL loading
+  detectVariables(currentQuery); // detect dynamic variables and make variable list in dom
+
   emit("change", {
     query: currentQuery,
     mode: props.activeMode,
     isUserInput: true,
   });
-
-  // Use the debounced URL sync function when user is typing
-  // This will only update the URL after the user stops typing
-  debouncedSyncUrlFromState();
 };
 
 // Function to programmatically update editor content (e.g., from store or clear)
@@ -577,6 +703,8 @@ const runProgrammaticUpdate = (newValue: string) => {
   isProgrammaticChange.value = true;
   editorContent.value = newValue; // Update internal state
   editorRef.value.setValue(newValue); // Update Monaco instance
+
+  detectVariables(newValue); // detect dynamic variables and make variable list in dom
 
   // Release the flag after the update is likely processed
   nextTick(() => {
@@ -590,6 +718,43 @@ const runProgrammaticUpdate = (newValue: string) => {
   });
 };
 
+const detectVariables = (value: string) => {
+  if (typeof value !== 'string') return;
+
+  // Extract dynamic variable names from query - handle both {{variable}} and __VAR_variable__ formats
+  const bracketMatches = [...value.matchAll(/{{\s*(\w+)\s*}}/g)].map(m => m[1]);
+  const underscoreMatches = [...value.matchAll(/__VAR_(\w+)__/g)].map(m => m[1]);
+
+  // Combine both formats and get unique variable names
+  const allMatches = [...bracketMatches, ...underscoreMatches];
+  const uniqueVariableNames = [...new Set(allMatches)];
+
+  // If allVariables is not ready, just upsert all found variables
+  const currentVariables = allVariables?.value ?? [];
+
+  const existingNames = currentVariables.map(v => v.name);
+
+  // Remove variables that are no longer in the query
+  for (const variable of currentVariables) {
+    if (!uniqueVariableNames.includes(variable.name)) {
+      variableStore.removeVariable(variable.name);
+    }
+  }
+
+  // Add new variables that appeared in query
+  for (const name of uniqueVariableNames) {
+    if (!existingNames.includes(name)) {
+      variableStore.upsertVariable({
+        name,
+        type: 'text',
+        label: name,
+        inputType: 'input',
+        value: ''
+      });
+    }
+  }
+};
+
 // Watch for prop value changes to update editor content
 watch(
   () => props.value,
@@ -598,6 +763,17 @@ watch(
       runProgrammaticUpdate(newValue || "");
     }
   }
+);
+
+// Watch for editor content changes to detect variables immediately
+watch(
+  () => editorContent.value,
+  (newValue) => {
+    if (newValue) {
+      detectVariables(newValue);
+    }
+  },
+  { immediate: true }
 );
 
 // --- Synchronization and Option Updates ---
@@ -619,6 +795,11 @@ watchEffect(() => {
   if (editorContent.value !== valueToSet) {
     runProgrammaticUpdate(valueToSet);
     shouldRestoreCursor = true;
+  }
+
+  // Detect variables whenever store content changes
+  if (valueToSet) {
+    detectVariables(valueToSet);
   }
 
   // 2. Update editor options and language if editor instance exists
@@ -732,38 +913,6 @@ watch(
   { deep: true, flush: "post" }
 );
 
-// Add this watch effect to force refresh editor content when query_id changes
-// This is specifically to fix the issue with kept-alive components
-// First, get the route outside the watcher (at component setup time)
-const route = useRoute();
-
-// Then watch the route.query.query_id property
-watch(
-  () => route.query.query_id,
-  (newQueryId, oldQueryId) => {
-    if (newQueryId !== oldQueryId && editorRef.value && !isDisposing.value) {
-      console.log(`QueryEditor: query_id changed from ${oldQueryId} to ${newQueryId}, ensuring editor content is updated`);
-
-      // Force a refresh from the store values after a small delay
-      setTimeout(() => {
-        if (editorRef.value && !isDisposing.value) {
-          const storeValue =
-            props.activeMode === "logchefql"
-              ? exploreStore.logchefqlCode
-              : exploreStore.rawSql;
-
-          runProgrammaticUpdate(storeValue || "");
-
-          // Focus the editor
-          nextTick(() => {
-            focusEditor(true);
-          });
-        }
-      }, 50);
-    }
-  }
-);
-
 // Watch for loading state to make editor read-only
 watch(
   () => exploreStore.isLoadingOperation("executeQuery"),
@@ -874,47 +1023,46 @@ const registerCompletionProvider = () => {
 };
 
 // --- Actions ---
+// Replace dynamic variables in query before submit
 const submitQuery = () => {
   const currentContent = editorContent.value;
-  validationError.value = null; // Clear previous error
+  validationError.value = null;
+
+  // For validation, replace variables with placeholders instead of actual values
+  let queryForValidation = currentContent;
+  if (props.activeMode === "logchefql") {
+    // For LogchefQL, replace with placeholder values that will parse correctly
+    queryForValidation = currentContent.replace(/{{(\w+)}}/g, '"placeholder"');
+  } else {
+    // For SQL, use the converted variables
+    const { convertVariables } = useVariables();
+    queryForValidation = convertVariables(currentContent);
+  }
 
   try {
     let isValid = true;
-    if (currentContent.trim()) {
-      // Only validate non-empty queries
+
+    if (queryForValidation.trim()) {
       if (props.activeMode === "logchefql") {
-        // Use detailed validation to get specific error messages
-        const validation = validateLogchefQLWithDetails(currentContent);
+        const validation = validateLogchefQLWithDetails(queryForValidation);
         isValid = validation.valid;
-        if (!isValid) {
-          // Display the specific error message instead of generic one
-          validationError.value =
-            validation.error || "Invalid LogchefQL syntax.";
-        }
+        if (!isValid) validationError.value = validation.error || "Invalid LogchefQL syntax.";
       } else {
-        // Use the enhanced SQL validation with detailed errors
-        const validation = validateSQLWithDetails(currentContent);
+        const validation = validateSQLWithDetails(queryForValidation);
         isValid = validation.valid;
-        if (!isValid) {
-          validationError.value = validation.error || "Invalid SQL syntax.";
-        }
+        console.log("Invalid SQL syntax. : " + isValid);
+        if (!isValid) validationError.value = validation.error || "Invalid SQL syntax.";
       }
     }
 
-    if (!isValid) {
-      return; // Stop if validation fails
-    }
+    if (!isValid) return;
 
-    // Update store (might be redundant if handleEditorChange already did, but ensures consistency)
     if (props.activeMode === "logchefql") {
-      if (exploreStore.logchefqlCode !== currentContent)
-        exploreStore.setLogchefqlCode(currentContent);
+      if (exploreStore.logchefqlCode !== currentContent) exploreStore.setLogchefqlCode(currentContent);
     } else {
-      if (exploreStore.rawSql !== currentContent)
-        exploreStore.setRawSql(currentContent);
+      if (exploreStore.rawSql !== currentContent) exploreStore.setRawSql(currentContent);
     }
 
-    // Emit submit event
     emit("submit", {
       query: currentContent,
       mode: props.activeMode,
@@ -1065,6 +1213,10 @@ const safelyDisposeEditor = (fullDisposal = false) => {
   editorRef.value = null; // Clear ref
 };
 
+onMounted(() => {
+  // No need for click outside listener anymore since we're using Sheet component
+});
+
 // Handle full disposal on unmount
 onBeforeUnmount(() => {
   safelyDisposeEditor(true); // Full disposal
@@ -1123,49 +1275,13 @@ const toggleSqlEditorVisibility = () => {
   }
 };
 
-
-
 // Watch for mode changes to reset visibility
 watch(
   () => props.activeMode,
   (newMode) => {
     // Always show editor when switching modes
-    isEditorVisible.value = true;
-    // Hide AI input when switching away from SQL mode
-    if (newMode !== 'clickhouse-sql') {
-      showAIInput.value = false;
-    }
-  }
-);
-
-// Toggle AI input visibility
-const toggleAIInput = () => {
-  showAIInput.value = !showAIInput.value;
-};
-
-// AI input handlers
-const onAIKeyDown = (e: KeyboardEvent) => {
-  // Submit on Ctrl+Enter or Cmd+Enter
-  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-    handleGenerateSQL();
-  }
-};
-
-const handleGenerateSQL = () => {
-  if (naturalLanguageQuery.value.trim()) {
-    // Emit event to parent to handle AI SQL generation
-    emit("generate-ai-sql", { naturalLanguageQuery: naturalLanguageQuery.value });
-  }
-};
-
-// Watch for successful SQL generation to clear the input and hide the AI section
-watch(
-  [() => storeForAI.generatedAiSql, () => storeForAI.isGeneratingAISQL],
-  ([generatedSql, isGenerating]) => {
-    // When generation completes successfully, clear input and hide AI section
-    if (!isGenerating && generatedSql && naturalLanguageQuery.value.trim()) {
-      naturalLanguageQuery.value = "";
-      showAIInput.value = false;
+    if (newMode === "logchefql") {
+      isEditorVisible.value = true;
     }
   }
 );
@@ -1385,7 +1501,7 @@ const getKeySuggestions = (range: MonacoRange): MonacoCompletionItem[] => {
     insertText: name,
     range: range,
     detail: props.schema[name]?.type || "Unknown",
-    sortText: `0-${name}`,
+    sortText: `0 - ${name} `,
     command: { id: "editor.action.triggerSuggest", title: "Trigger Suggest" },
   }));
 };
@@ -1433,10 +1549,10 @@ const prepareSuggestionValues = (
       return { label: item }; // Numeric values don't need quotes unless context demands it
     } else {
       // Escape existing quotes within the value
-      const escapedValue = item.replace(new RegExp(`\\${q}`, "g"), `\\${q}`);
+      const escapedValue = item.replace(new RegExp(`\\${q} `, "g"), `\\${q} `);
       return {
         label: item,
-        insertText: `${q}${escapedValue}${q}`,
+        insertText: `${q}${escapedValue}${q} `,
       };
     }
   });
@@ -1514,6 +1630,8 @@ const asEditorMode = (value: string | number): EditorMode => {
   return "logchefql";
 };
 
+// After the imports, add route and router
+const route = useRoute();
 const router = useRouter();
 
 // Add these computed properties after other computed properties
@@ -1562,6 +1680,118 @@ const handleNewQueryClick = () => {
       });
   });
 };
+// Open sheet to edit all variables
+const openAllVariableSettings = () => {
+  showVariablesConfig.value = true;
+};
+
+// Open sheet to edit selected variable (kept for backward compatibility)
+const openVariableSettings = (variable: VariableSetting) => {
+  selectedVariable.value = { ...variable }; // Create a copy to avoid direct mutation
+};
+
+// Close the sheet UI
+const closeDrawer = () => {
+  selectedVariable.value = null;
+  showVariablesConfig.value = false;
+};
+
+// Update default value based on variable type
+const setDefaultValueByType = () => {
+  if (!selectedVariable.value) return;
+
+  // Update the variable in the store
+  const updatedVariable = { ...selectedVariable.value };
+
+  switch (updatedVariable.type) {
+    case 'text':
+      updatedVariable.value = '';
+      break;
+    case 'number':
+      updatedVariable.value = 0;
+      break;
+    case 'date':
+      updatedVariable.value = new Date().toISOString();
+      break;
+  }
+
+  // Update both local state and store
+  selectedVariable.value = updatedVariable;
+  variableStore.upsertVariable(updatedVariable);
+};
+
+// Update variable type for multi-variable panel
+const updateVariableType = (variable: VariableSetting) => {
+  // Update default value based on new type
+  switch (variable.type) {
+    case 'text':
+      variable.value = '';
+      break;
+    case 'number':
+      variable.value = 0;
+      break;
+    case 'date':
+      variable.value = new Date().toISOString();
+      break;
+  }
+
+  // Update in store
+  variableStore.upsertVariable(variable);
+};
+
+// Determine input type for a given variable type
+const inputTypeFor = (type: string) => {
+  if (type === 'number') return 'number';
+  if (type === 'date') return 'datetime-local';
+  return 'text';
+};
+
+// Get placeholder text for variable type
+const getPlaceholderForType = (type: string) => {
+  switch (type) {
+    case 'number':
+      return 'Enter a number...';
+    case 'date':
+      return 'Select date and time...';
+    case 'text':
+    default:
+      return 'Enter text value...';
+  }
+};
+
+// Format variable value for display
+const formatVariableValue = (variable: VariableSetting) => {
+  if (!variable.value) return '';
+
+  switch (variable.type) {
+    case 'number':
+      return `Value: ${variable.value} `;
+    case 'date':
+      try {
+        const date = new Date(variable.value);
+        return `Date: ${date.toLocaleDateString()} ${date.toLocaleTimeString()} `;
+      } catch {
+        return `Date: ${variable.value} `;
+      }
+    case 'text':
+    default:
+      const value = String(variable.value);
+      return value.length > 20 ? `"${value.substring(0, 20)}..."` : `"${value}"`;
+  }
+};
+
+// Watch for changes to selected variable and update the store
+watch(
+  () => selectedVariable.value,
+  (newVariable) => {
+    if (newVariable) {
+      // Update the variable in the store when it changes
+      variableStore.upsertVariable(newVariable);
+    }
+  },
+  { deep: true }
+);
+
 </script>
 
 <style scoped>
@@ -1694,4 +1924,6 @@ const handleNewQueryClick = () => {
   background-color: #1c2536;
   /* Matches the bluish dark theme hover */
 }
+
+/* Remove old drawer styles as we're using shadcn-ui Sheet component now */
 </style>

@@ -147,6 +147,12 @@ LIMIT ${limit}`;
         }
       }
 
+      console.log("original SQL:", sql);
+      console.log("parsed timestamp field:", tsField);
+      console.log("new time condition will be inserted:", timeRange);
+      console.log("newTimeCondition ",newTimeCondition);
+      console.log("tsFieldForRegex",tsFieldForRegex);
+
       return updatedSql;
     } catch (error) {
       console.error("SqlManager: Error updating SQL with new time range:", error);
@@ -250,7 +256,10 @@ LIMIT ${limit}`;
     }
 
     try {
-      // Validate SQL first
+      // Note: Variable substitution should be handled by the caller (useQuery.ts)
+      // before calling this method for proper separation of concerns
+
+      // Step 1: Validate SQL first
       const validation = this.validateSql(sql);
       if (!validation.valid) {
         return {
@@ -261,7 +270,7 @@ LIMIT ${limit}`;
         };
       }
 
-      // Step 1: Update time range if needed
+      // Step 2: Update time range if needed
       let processedSql = this.updateTimeRange({
         sql,
         tsField,
@@ -269,7 +278,7 @@ LIMIT ${limit}`;
         timezone
       });
 
-      // Step 2: Ensure correct limit
+      // Step 3: Ensure correct limit
       processedSql = this.ensureCorrectLimit(processedSql, limit);
 
       return {

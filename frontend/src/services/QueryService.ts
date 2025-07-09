@@ -109,14 +109,20 @@ export class QueryService {
 
     if (logchefqlQuery?.trim()) {
       try {
+        // Replace dynamic variables with placeholders while preserving variable names
+        const queryForParsing = logchefqlQuery.replace(/{{(\w+)}}/g, "'__VAR_$1__'");
         // Use the translator to get SQL conditions
-        const translationResult = parseAndTranslateLogchefQL(logchefqlQuery);
+        const translationResult = parseAndTranslateLogchefQL(queryForParsing);
         if (!translationResult.success) {
           // Don't fail completely, just add warning and continue with base query
           warnings.push(translationResult.error || "Failed to translate LogchefQL.");
         } else {
-          // Assign the translated conditions
+          // Assign the translated conditions and convert __VAR_ placeholders back to {{variable}} format
           logchefqlConditions = translationResult.sql || "";
+          // Convert __VAR_variable__ back to {{variable}} format for consistent display
+          logchefqlConditions = logchefqlConditions.replace(/'__VAR_(\w+)__'/g, '{{$1}}');
+          // Also handle cases where quotes might be missing
+          logchefqlConditions = logchefqlConditions.replace(/__VAR_(\w+)__/g, '{{$1}}');
 
           // Add filter operation if we have conditions
           if (logchefqlConditions && !meta.operations.includes('filter')) {
