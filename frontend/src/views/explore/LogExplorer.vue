@@ -11,7 +11,7 @@ import { useRouter, useRoute } from "vue-router";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/composables/useToast";
-import { Share2, WandSparkles, Rows4, TerminalSquare } from "lucide-vue-next";
+import { Share2, WandSparkles, Rows4, TerminalSquare, ChevronUp, ChevronDown } from "lucide-vue-next";
 import { TOAST_DURATION } from "@/lib/constants";
 import { useExploreStore } from "@/stores/explore";
 import { useTeamsStore } from "@/stores/teams";
@@ -141,6 +141,7 @@ const timeRangeSelectorRef = ref<InstanceType<typeof TimeRangeSelector> | null>(
   null
 );
 const sortKeysInfoOpen = ref(false); // State for sort keys info expandable section
+const isHistogramVisible = ref(true); // State for histogram visibility toggle
 
 // Query execution deduplication
 const executingQueryId = ref<string | null>(null);
@@ -734,6 +735,21 @@ const addSortKeyExample = () => {
   });
 };
 
+// Histogram visibility toggle
+const toggleHistogramVisibility = () => {
+  isHistogramVisible.value = !isHistogramVisible.value;
+};
+
+// Auto-hide histogram when it's not eligible (e.g., in SQL mode)
+watch(
+  () => exploreStore.isHistogramEligible,
+  (isEligible) => {
+    if (!isEligible && isHistogramVisible.value) {
+      isHistogramVisible.value = false;
+    }
+  }
+);
+
 // AI SQL generation handler (now handled inline in QueryEditor)
 const handleGenerateAISQL = async ({ naturalLanguageQuery }: { naturalLanguageQuery: string }) => {
   try {
@@ -755,38 +771,13 @@ const handleGenerateAISQL = async ({ naturalLanguageQuery }: { naturalLanguageQu
       currentQuery = sqlQuery.value.trim();
     }
 
-    const result = await exploreStore.generateAiSql(naturalLanguageQuery, currentQuery);
+    // Generate AI SQL and store result for the QueryEditor to access
+    await exploreStore.generateAiSql(naturalLanguageQuery, currentQuery);
 
-    if (result.success && 'data' in result && result.data) {
-      // Switch to SQL mode and update the content
-      changeMode('sql');
-      exploreStore.setRawSql(result.data.sql_query);
-
-      // Focus the editor
-      nextTick(() => {
-        queryEditorRef.value?.focus(true);
-      });
-    } else {
-      // Show error in toast
-      const errorMessage = result.error && 'message' in result.error
-        ? result.error.message
-        : 'Failed to generate SQL';
-
-      toast({
-        title: "AI SQL Generation Failed",
-        description: errorMessage,
-        variant: "destructive",
-        duration: TOAST_DURATION.ERROR,
-      });
-    }
+    // The AI dialog in QueryEditor will handle success/error display and insertion
   } catch (error) {
     console.error("Error generating AI SQL:", error);
-    toast({
-      title: "AI SQL Generation Error",
-      description: getErrorMessage(error),
-      variant: "destructive",
-      duration: TOAST_DURATION.ERROR,
-    });
+    // The store will have the error state that the AI dialog can display
   }
 };
 
@@ -1256,13 +1247,29 @@ onBeforeUnmount(() => {
             ">
               <!-- Group By controls above histogram -->
               <div class="flex items-center justify-between mb-2">
-                <div class="text-xs font-medium">Time Series Distribution</div>
+                <div class="flex items-center space-x-2">
+                  <div class="text-xs font-medium">Time Series Distribution</div>
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    class="h-6 w-6 p-0 hover:bg-gray-100" 
+                    @click="toggleHistogramVisibility"
+                    :title="isHistogramVisible ? 'Hide histogram' : 'Show histogram'"
+                  >
+                    <ChevronUp v-if="isHistogramVisible" class="h-3 w-3" />
+                    <ChevronDown v-else class="h-3 w-3" />
+                  </Button>
+                </div>
                 <GroupBySelector :available-fields="availableFields" />
               </div>
 
               <!-- Histogram visualization -->
-              <HistogramVisualization :group-by="exploreStore.groupByField" @zoom-time-range="onHistogramTimeRangeZoom"
-                @update:timeRange="onHistogramTimeRangeZoom" />
+              <HistogramVisualization 
+                v-if="isHistogramVisible"
+                :group-by="exploreStore.groupByField" 
+                @zoom-time-range="onHistogramTimeRangeZoom"
+                @update:timeRange="onHistogramTimeRangeZoom" 
+              />
             </div>
 
             <!-- Results Section -->

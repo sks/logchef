@@ -31,6 +31,21 @@
           </TabsList>
         </Tabs>
 
+        <!-- AI Assistant Button -->
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="outline" size="sm" class="h-7 gap-1.5" @click="showAiDialog = true">
+                <Wand2 class="h-3.5 w-3.5 text-purple-600" />
+                <span class="text-xs font-medium">AI Assistant</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              <p>Generate SQL using natural language</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+
         <!-- Table name indicator (Moved & Always Visible) -->
         <div class="text-xs text-muted-foreground ml-3">
           <template v-if="props.tableName">
@@ -370,6 +385,154 @@
     </SheetContent>
   </Sheet>
 
+  <!-- AI SQL Assistant Dialog -->
+  <Dialog :open="showAiDialog" @update:open="showAiDialog = $event">
+    <DialogContent class="sm:max-w-3xl max-h-[90vh] overflow-hidden">
+      <!-- Header -->
+      <DialogHeader class="border-b pb-4">
+        <DialogTitle class="flex items-center gap-3">
+          <Wand2 class="h-6 w-6 text-purple-600" />
+          <span class="text-xl font-semibold text-gray-800">AI SQL Assistant</span>
+        </DialogTitle>
+        <DialogDescription class="text-gray-600 mt-2">
+          Describe the data you want to retrieve in natural language, and I'll generate SQL for you.
+        </DialogDescription>
+      </DialogHeader>
+      
+      <div class="flex flex-col gap-6 py-4 overflow-y-auto max-h-[60vh]">
+        <!-- Input Section -->
+        <div class="space-y-3">
+          <Label class="text-sm font-medium text-gray-700">What data are you looking for?</Label>
+          <Textarea 
+            ref="aiTextareaRef"
+            v-model="aiNaturalQuery"
+            placeholder="show logs from syslog namespace for the Scarface service from the past 12 hours."
+            class="min-h-[120px] resize-y border-2 border-gray-300 focus:border-purple-500 bg-white shadow-sm appearance-none outline-none"
+            style="border-style: solid !important; border-width: 2px !important; border-color: rgb(209 213 219) !important;"
+            @keydown.meta.enter="handleAiSubmit"
+            @keydown.ctrl.enter="handleAiSubmit"
+          />
+          <div class="flex items-center justify-between text-xs text-gray-500">
+            <div>
+              Press <kbd class="px-1.5 py-0.5 bg-gray-100 rounded font-mono">Ctrl+Enter</kbd> to generate
+            </div>
+            <details class="text-xs">
+              <summary class="cursor-pointer hover:text-gray-700 font-medium">Examples</summary>
+              <div class="absolute z-10 mt-2 right-0 bg-white border border-gray-200 rounded-md shadow-lg p-3 w-80">
+                <div class="space-y-2">
+                  <div 
+                    @click="setExamplePrompt('Show me all error logs from the past hour')"
+                    class="cursor-pointer p-2 hover:bg-gray-50 rounded text-sm border border-gray-100"
+                  >
+                    Show me all error logs from the past hour
+                  </div>
+                  <div 
+                    @click="setExamplePrompt('Count log entries by level for today')"
+                    class="cursor-pointer p-2 hover:bg-gray-50 rounded text-sm border border-gray-100"
+                  >
+                    Count log entries by level for today
+                  </div>
+                  <div 
+                    @click="setExamplePrompt('Find logs containing authentication failed in the past 24 hours')"
+                    class="cursor-pointer p-2 hover:bg-gray-50 rounded text-sm border border-gray-100"
+                  >
+                    Find logs containing "authentication failed" in the past 24 hours
+                  </div>
+                  <div 
+                    @click="setExamplePrompt('Show top 10 most frequent error messages this week')"
+                    class="cursor-pointer p-2 hover:bg-gray-50 rounded text-sm border border-gray-100"
+                  >
+                    Show top 10 most frequent error messages this week
+                  </div>
+                </div>
+              </div>
+            </details>
+          </div>
+        </div>
+
+        <!-- Generated SQL Section -->
+        <div class="space-y-3">
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-medium text-gray-700">Generated SQL</span>
+            <div v-if="isGeneratingAi" class="flex items-center gap-2 text-xs text-gray-500">
+              <div class="w-3 h-3 border-2 border-gray-300 border-t-purple-500 rounded-full animate-spin"></div>
+              Generating...
+            </div>
+          </div>
+          
+          <!-- SQL Preview Container -->
+          <div class="bg-gray-50 border-2 border-gray-300 rounded-md overflow-hidden shadow-sm">
+            <!-- Loading State -->
+            <div v-if="isGeneratingAi" class="p-4 space-y-2">
+              <div class="h-4 bg-gray-200 rounded animate-pulse"></div>
+              <div class="h-4 bg-gray-200 rounded animate-pulse w-3/4"></div>
+              <div class="h-4 bg-gray-200 rounded animate-pulse w-1/2"></div>
+            </div>
+            
+            <!-- Empty State -->
+            <div v-else-if="!generatedSql && !aiError" class="p-8 text-center text-gray-400">
+              <Wand2 class="h-8 w-8 mx-auto mb-2 opacity-50" />
+              <p class="text-sm">Your generated SQL will appear here</p>
+            </div>
+            
+            <!-- Generated SQL Display -->
+            <div v-else-if="generatedSql" class="relative">
+              <pre class="p-4 text-sm font-mono text-gray-800 overflow-auto max-h-60 whitespace-pre-wrap leading-relaxed"><code>{{ generatedSql }}</code></pre>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                class="absolute top-2 right-2 h-6 w-6 p-0"
+                @click="copyToClipboard(generatedSql)"
+                title="Copy to clipboard"
+              >
+                <div class="h-3 w-3">📋</div>
+              </Button>
+            </div>
+            
+            <!-- Error State -->
+            <div v-else-if="aiError" class="p-4 text-sm text-red-700 bg-red-50 border-l-4 border-red-400">
+              <div class="flex items-start gap-2">
+                <AlertCircle class="h-4 w-4 flex-shrink-0 mt-0.5" />
+                <div>
+                  <div class="font-medium">Generation Failed</div>
+                  <div class="text-xs mt-1 text-red-600">{{ aiError }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer Actions -->
+      <DialogFooter class="border-t pt-4 flex justify-between items-center">
+        <Button variant="outline" @click="resetAiDialog">
+          Cancel
+        </Button>
+        
+        <div class="flex gap-2">
+          <Button 
+            variant="outline"
+            @click="handleAiSubmit" 
+            :disabled="!aiNaturalQuery.trim() || isGeneratingAi"
+            class="border-purple-200 text-purple-700 hover:bg-purple-50"
+          >
+            <Wand2 v-if="!isGeneratingAi" class="h-4 w-4 mr-2" />
+            <div v-if="isGeneratingAi" class="w-4 h-4 border-2 border-purple-300 border-t-purple-600 rounded-full animate-spin mr-2"></div>
+            {{ isGeneratingAi ? 'Generating...' : (generatedSql ? 'Regenerate' : 'Generate SQL') }}
+          </Button>
+          
+          <Button 
+            @click="insertGeneratedSql" 
+            :disabled="!generatedSql || isGeneratingAi"
+            class="bg-purple-600 hover:bg-purple-700 text-white font-medium"
+          >
+            Insert into Editor
+          </Button>
+        </div>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
+
 </template>
 
 <script setup lang="ts">
@@ -401,6 +564,7 @@ import {
   Code2,
   Eye,
   EyeOff,
+  Wand2,
 } from "lucide-vue-next";
 import {
   HoverCard,
@@ -432,8 +596,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Settings } from "lucide-vue-next";
 
 import {
@@ -536,6 +709,27 @@ const { allVariables } = storeToRefs(variableStore);
 const selectedVariable = ref<VariableSetting | null>(null);
 // Show variables configuration panel
 const showVariablesConfig = ref(false);
+
+// AI SQL generation state
+const showAiDialog = ref(false);
+const aiNaturalQuery = ref('');
+
+// Get AI state from store
+const isGeneratingAi = computed(() => exploreStore.isGeneratingAISQL);
+const aiError = computed(() => exploreStore.aiSqlError);
+const generatedSql = computed(() => exploreStore.generatedAiSql);
+
+// AI textarea ref for auto-focus
+const aiTextareaRef = ref<HTMLTextAreaElement | null>(null);
+
+// Auto-focus when dialog opens
+watch(showAiDialog, (isOpen) => {
+  if (isOpen) {
+    nextTick(() => {
+      aiTextareaRef.value?.focus();
+    });
+  }
+});
 
 // --- Computed Properties ---
 const theme = computed(() => (isDark.value ? "logchef-dark" : "logchef-light"));
@@ -1777,6 +1971,79 @@ const formatVariableValue = (variable: VariableSetting) => {
     default:
       const value = String(variable.value);
       return value.length > 20 ? `"${value.substring(0, 20)}..."` : `"${value}"`;
+  }
+};
+
+// AI SQL generation handler
+const handleAiSubmit = async () => {
+  if (!aiNaturalQuery.value.trim()) return;
+  
+  try {
+    // Emit the generate-ai-sql event with the natural language query
+    emit('generateAiSql', { 
+      naturalLanguageQuery: aiNaturalQuery.value.trim(),
+      currentQuery: editorContent.value || '' 
+    });
+  } catch (error) {
+    console.error('Failed to emit generateAiSql event:', error);
+  }
+};
+
+// Insert generated SQL into editor
+const insertGeneratedSql = () => {
+  if (!generatedSql.value) return;
+  
+  // Update editor content with generated SQL
+  editorContent.value = generatedSql.value;
+  
+  // Emit the change event
+  handleEditorChange(generatedSql.value, true);
+  
+  // Close dialog and reset state
+  resetAiDialog();
+  
+  // Focus the editor after insertion
+  nextTick(() => {
+    focusEditor(true);
+  });
+};
+
+// Reset AI dialog state
+const resetAiDialog = () => {
+  showAiDialog.value = false;
+  aiNaturalQuery.value = '';
+  // Clear store state
+  exploreStore.clearAiSqlState();
+};
+
+// Set example prompt
+const setExamplePrompt = (prompt: string) => {
+  aiNaturalQuery.value = prompt;
+  // Auto-focus the textarea after setting example
+  nextTick(() => {
+    aiTextareaRef.value?.focus();
+  });
+};
+
+// Copy to clipboard helper
+const copyToClipboard = async (text: string) => {
+  try {
+    await navigator.clipboard.writeText(text);
+    const { toast } = useToast();
+    toast({
+      title: "Copied!",
+      description: "SQL query copied to clipboard",
+      duration: 2000,
+    });
+  } catch (error) {
+    console.error('Failed to copy to clipboard:', error);
+    const { toast } = useToast();
+    toast({
+      title: "Copy failed",
+      description: "Unable to copy to clipboard",
+      variant: "destructive",
+      duration: 3000,
+    });
   }
 };
 
