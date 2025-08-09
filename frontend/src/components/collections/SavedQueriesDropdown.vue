@@ -23,7 +23,7 @@ import { Input } from '@/components/ui/input';
 import { useExploreStore } from '@/stores/explore';
 import { useAuthStore } from '@/stores/auth';
 import { useSavedQueries } from '@/composables/useSavedQueries';
-import { contextTransitionInProgress } from '@/composables/useSourceTeamManagement';
+// Removed contextTransitionInProgress - no longer needed with clean architecture
 
 const props = defineProps<{
   selectedTeamId?: number;
@@ -84,18 +84,8 @@ const filteredQueryCount = computed(() => filteredQueries.value.length); // Coun
 watch(
   () => [props.selectedTeamId, props.selectedSourceId],
   async ([teamId, sourceId]) => {
-    // Don't load queries during team/source context transitions to prevent 403 errors
-    if (contextTransitionInProgress.value) {
-      console.log('SavedQueriesDropdown: Skipping query load during context transition');
-      return;
-    }
-    
     if (teamId && sourceId) {
       await loadQueries(teamId, sourceId);
-    } else {
-      // Optionally clear store queries if team/source deselects, or let the store handle it
-      // savedQueriesStore.resetQueries() // Assuming a reset action exists if needed
-      // For now, the dropdown will just show 'select team/source' based on template logic
     }
   },
   { immediate: true }
@@ -104,11 +94,6 @@ watch(
 // Load queries when dropdown opens
 watch(isOpen, async (open) => {
   if (open && props.selectedTeamId && props.selectedSourceId && !queries.value.length) {
-    // Don't load queries during team/source context transitions
-    if (contextTransitionInProgress.value) {
-      console.log('SavedQueriesDropdown: Skipping query load on open during context transition');
-      return;
-    }
     await loadQueries(props.selectedTeamId, props.selectedSourceId);
   }
 

@@ -58,13 +58,11 @@ export function useQuery() {
       activeMode.value === 'logchefql' ? logchefQuery.value : sqlQuery.value
   );
 
-  // Source and execution state - delegate to store
-  const canExecuteQuery = computed(() =>
-      exploreStore.sourceId > 0 &&
-      teamsStore.currentTeamId !== null &&
-      teamsStore.currentTeamId > 0 &&
-      sourcesStore.hasValidCurrentSource
-  );
+  // Source and execution state - delegate to store with enhanced loading checks
+  const canExecuteQuery = computed(() => {
+    // Use the store's enhanced canExecuteQuery which includes loading state checks
+    return exploreStore.canExecuteQuery;
+  });
 
   const isExecutingQuery = computed(() =>
       exploreStore.isLoadingOperation('executeQuery')

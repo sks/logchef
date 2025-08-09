@@ -1,7 +1,7 @@
 import { defineStore } from "pinia";
 import { computed, watch } from "vue";
 import { exploreApi } from "@/api/explore";
-import { contextTransitionInProgress } from "@/composables/useSourceTeamManagement";
+// Removed contextTransitionInProgress - using clean architecture now
 import type {
   ColumnInfo,
   QueryStats,
@@ -20,6 +20,7 @@ import type { DateValue } from "@internationalized/date";
 import { now, getLocalTimeZone, CalendarDateTime } from "@internationalized/date";
 import { useSourcesStore } from "./sources";
 import { useTeamsStore } from "@/stores/teams";
+import { useContextStore } from "@/stores/context";
 import { useBaseStore } from "./base";
 import { QueryService } from '@/services/QueryService'
 import { parseRelativeTimeString } from "@/utils/time";
@@ -148,6 +149,10 @@ const DEFAULT_QUERY_STATS: QueryStats = {
 };
 
 export const useExploreStore = defineStore("explore", () => {
+  // Store references for use in computed properties
+  const sourcesStore = useSourcesStore();
+  const contextStore = useContextStore();
+  
   // Initialize base store with default state
   const state = useBaseStore<ExploreState>({
     logs: [],
@@ -180,12 +185,40 @@ export const useExploreStore = defineStore("explore", () => {
     isCancellingQuery: false,
   });
 
+  // Watch context store for team/source changes
+  watch(
+    () => contextStore.teamId,
+    (newTeamId) => {
+      if (newTeamId) {
+        // Update the old teams store to maintain compatibility
+        const teamsStore = useTeamsStore();
+        teamsStore.setCurrentTeam(newTeamId);
+      }
+    }
+  );
+
+  watch(
+    () => contextStore.sourceId,
+    (newSourceId) => {
+      if (newSourceId !== state.data.value.sourceId) {
+        setSource(newSourceId || 0);
+      }
+    }
+  );
+
   // Getters
   const hasValidSource = computed(() => !!state.data.value.sourceId);
   const hasValidTimeRange = computed(() => !!state.data.value.timeRange);
-  const canExecuteQuery = computed(
-    () => hasValidSource.value && hasValidTimeRange.value
-  );
+  const canExecuteQuery = computed(() => {
+    // Basic requirements
+    if (!hasValidSource.value || !hasValidTimeRange.value) {
+      return false;
+    }
+    
+    // Allow execution even if source details don't match temporarily
+    // The executeQuery function will handle coordination issues gracefully
+    return true;
+  });
   const isExecutingQuery = computed(() => state.isLoadingOperation('executeQuery'));
   const canCancelQuery = computed(() => 
     (!!state.data.value.currentQueryAbortController || !!state.data.value.currentQueryId) && 
@@ -216,9 +249,12 @@ export const useExploreStore = defineStore("explore", () => {
       return null;
     }
 
-    const tableName = sourcesStore.getCurrentSourceTableName;
-    if (!tableName) {
-      return null;
+    // Get table name directly from source details to avoid stale cached values
+    let tableName = 'default.logs'; // Default fallback
+    if (sourceDetails.connection?.database && sourceDetails.connection?.table_name) {
+      tableName = `${sourceDetails.connection.database}.${sourceDetails.connection.table_name}`;
+    } else {
+      return null; // Cannot translate without proper table info
     }
 
     const tsField = sourceDetails._meta_ts_field || 'timestamp';
@@ -412,12 +448,9 @@ export const useExploreStore = defineStore("explore", () => {
     console.log(`Explore store: Set timezone identifier to ${timezone}`);
   }
 
-  // Actions
-  function setSource(sourceId: number, opts?: { origin?: 'url' | 'user' | 'auto' }) {
-    // If we're auto-changing and a saved query is selected, avoid clobbering
-    if (opts?.origin === 'auto' && state.data.value.selectedQueryId) {
-      return;
-    }
+  // Actions - simplified for clean approach
+  function setSource(sourceId: number) {
+    console.log(`Explore store: Setting source to ${sourceId}`);
 
     // Clear query results to prevent showing old data
     state.data.value.generatedDisplaySql = null;
@@ -433,24 +466,13 @@ export const useExploreStore = defineStore("explore", () => {
     // Set the new source ID
     state.data.value.sourceId = sourceId;
 
-    // Generate appropriate SQL for new source
-    const sourcesStore = useSourcesStore();
-    if (sourceId && sourcesStore.getCurrentSourceTableName && state.data.value.timeRange) {
-      const tableName = sourcesStore.getCurrentSourceTableName;
-      const tsField = sourcesStore.currentSourceDetails?._meta_ts_field || 'timestamp';
-
-      if (state.data.value.activeMode === 'sql') {
-        const result = QueryService.generateDefaultSQL({
-          tableName,
-          tsField,
-          timeRange: state.data.value.timeRange,
-          limit: state.data.value.limit
-        });
-        state.data.value.rawSql = result.success ? result.sql : '';
-      } else {
-        // In LogchefQL mode, just clear the query
-        state.data.value.logchefqlCode = '';
-      }
+    // Clear queries when source changes to prevent stale table references
+    if (state.data.value.activeMode === 'sql') {
+      state.data.value.rawSql = '';
+      console.log('Explore store: Cleared SQL on source change');
+    } else {
+      state.data.value.logchefqlCode = '';
+      console.log('Explore store: Cleared LogchefQL on source change');
     }
   }
 
@@ -507,10 +529,17 @@ export const useExploreStore = defineStore("explore", () => {
       } else {
         // If no LogchefQL code, generate default SQL
         const sourcesStore = useSourcesStore();
-        if (sourcesStore.getCurrentSourceTableName && state.data.value.timeRange) {
+        const sourceDetails = sourcesStore.currentSourceDetails;
+        if (sourceDetails && state.data.value.timeRange) {
+          // Get table name directly from source details
+          let tableName = 'default.logs'; // Default fallback
+          if (sourceDetails.connection?.database && sourceDetails.connection?.table_name) {
+            tableName = `${sourceDetails.connection.database}.${sourceDetails.connection.table_name}`;
+          }
+          
           const result = SqlManager.generateDefaultSql({
-            tableName: sourcesStore.getCurrentSourceTableName,
-            tsField: sourcesStore.currentSourceDetails?._meta_ts_field || 'timestamp',
+            tableName,
+            tsField: sourceDetails._meta_ts_field || 'timestamp',
             timeRange: state.data.value.timeRange,
             limit: state.data.value.limit,
             timezone: state.data.value.selectedTimezoneIdentifier || undefined
@@ -696,8 +725,15 @@ export const useExploreStore = defineStore("explore", () => {
 
     // Generate default SQL
     const sourcesStore = useSourcesStore();
-    const tableName = sourcesStore.getCurrentSourceTableName || 'logs.vector_logs';
-    const timestampField = sourcesStore.currentSourceDetails?._meta_ts_field || 'timestamp';
+    const sourceDetails = sourcesStore.currentSourceDetails;
+    
+    // Get table name directly from source details
+    let tableName = 'logs.vector_logs'; // Default fallback
+    if (sourceDetails?.connection?.database && sourceDetails?.connection?.table_name) {
+      tableName = `${sourceDetails.connection.database}.${sourceDetails.connection.table_name}`;
+    }
+    
+    const timestampField = sourceDetails?._meta_ts_field || 'timestamp';
 
     const result = SqlManager.generateDefaultSql({
       tableName,
@@ -724,8 +760,15 @@ export const useExploreStore = defineStore("explore", () => {
     // Generate SQL for new source if time range exists
     if (state.data.value.timeRange) {
       const sourcesStore = useSourcesStore();
-      const tableName = sourcesStore.getCurrentSourceTableName || 'logs.vector_logs';
-      const timestampField = sourcesStore.currentSourceDetails?._meta_ts_field || 'timestamp';
+      const sourceDetails = sourcesStore.currentSourceDetails;
+      
+      // Get table name directly from source details
+      let tableName = 'logs.vector_logs'; // Default fallback
+      if (sourceDetails?.connection?.database && sourceDetails?.connection?.table_name) {
+        tableName = `${sourceDetails.connection.database}.${sourceDetails.connection.table_name}`;
+      }
+      
+      const timestampField = sourceDetails?._meta_ts_field || 'timestamp';
 
       const result = SqlManager.generateDefaultSql({
         tableName,
@@ -745,6 +788,7 @@ export const useExploreStore = defineStore("explore", () => {
 
   // Execute query action
   async function executeQuery() {
+
     // Store the relative time so we can restore it after execution
     const relativeTime = state.data.value.selectedRelativeTime;
 
@@ -775,22 +819,35 @@ export const useExploreStore = defineStore("explore", () => {
         return state.handleError({ status: "error", message: "No team selected", error_type: "ValidationError" }, operationKey);
       }
 
-      // Get source details to check they're fully loaded
+      // Get source details and stores to validate full loading state
       const sourcesStore = useSourcesStore();
+      const teamsStore = useTeamsStore();
       const sourceDetails = sourcesStore.currentSourceDetails;
 
-      // Validate that we have the current source details loaded
+      // Validate that we have the current source details fully loaded and matching
       if (!sourceDetails || sourceDetails.id !== state.data.value.sourceId) {
         console.warn(`Source details not loaded or mismatch: have ID ${sourceDetails?.id}, need ID ${state.data.value.sourceId}`);
         
-        // Don't show error toast during team/source context transitions
-        if (contextTransitionInProgress.value) {
-          return { success: false, data: null };
-        }
-        
+        // This is likely a coordination issue during team/source switching
+        // Don't show user-facing errors - just silently fail and let the UI retry
+        console.log("Explore store: Silently skipping query due to source coordination issue");
+        return { 
+          success: false, 
+          data: null, 
+          error: { 
+            message: "Source coordination in progress",
+            error_type: "CoordinationError"
+          }
+        };
+      }
+
+      // 4. Validate that the source belongs to the current team
+      const teamSources = sourcesStore.teamSources || [];
+      if (!teamSources.some(s => s.id === state.data.value.sourceId)) {
+        console.warn(`Source ${state.data.value.sourceId} does not belong to team ${currentTeamId}`);
         return state.handleError({
-          status: "error",
-          message: "Source details not fully loaded. Please try again.",
+          status: "error", 
+          message: "Source does not belong to current team. Please refresh the page.",
           error_type: "ValidationError"
         }, operationKey);
       }
@@ -815,7 +872,15 @@ export const useExploreStore = defineStore("explore", () => {
         console.log(`Explore store: Generating default SQL for empty ${state.data.value.activeMode} query`);
 
         const tsField = sourceDetails._meta_ts_field || 'timestamp';
-        const tableName = sourcesStore.getCurrentSourceTableName || 'default.logs';
+        
+        // Use table name directly from the current source details to avoid stale cached values
+        let tableName = 'default.logs'; // Default fallback
+        if (sourceDetails.connection?.database && sourceDetails.connection?.table_name) {
+          tableName = `${sourceDetails.connection.database}.${sourceDetails.connection.table_name}`;
+          console.log(`Explore store: Using table name from source details: ${tableName}`);
+        } else {
+          console.log(`Explore store: Using default table name: ${tableName}`);
+        }
 
         // Generate default SQL using SqlManager
         const result = SqlManager.generateDefaultSql({
@@ -1307,8 +1372,14 @@ export const useExploreStore = defineStore("explore", () => {
       if (!finalSql || !finalSql.trim()) {
         console.log("Histogram: No SQL provided, generating default query");
 
-        const tsField = sourcesStore.currentSourceDetails._meta_ts_field || 'timestamp';
-        const tableName = sourcesStore.getCurrentSourceTableName || 'default.logs';
+        const sourceDetails = sourcesStore.currentSourceDetails;
+        const tsField = sourceDetails._meta_ts_field || 'timestamp';
+        
+        // Get table name directly from source details
+        let tableName = 'default.logs'; // Default fallback
+        if (sourceDetails?.connection?.database && sourceDetails?.connection?.table_name) {
+          tableName = `${sourceDetails.connection.database}.${sourceDetails.connection.table_name}`;
+        }
 
         // Generate default SQL using SqlManager
         const result = SqlManager.generateDefaultSql({
