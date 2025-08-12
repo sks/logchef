@@ -30,6 +30,7 @@ go.work.sum
 .cursorrules
 .cursor/
 CLAUDE.md
+DEVELOPMENT_GOALS.md
 
 # Local dev files
 *.db*

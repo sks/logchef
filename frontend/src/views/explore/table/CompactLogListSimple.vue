@@ -1,14 +1,26 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useToast } from '@/composables/useToast'
 import { TOAST_DURATION } from '@/lib/constants'
+import TableControls from './TableControls.vue'
+import { 
+  useVueTable, 
+  getCoreRowModel, 
+  getPaginationRowModel,
+  getFilteredRowModel,
+  type PaginationState,
+  type VisibilityState,
+  type ColumnDef
+} from '@tanstack/vue-table'
+import { valueUpdater } from '@/lib/utils'
+import type { QueryStats } from '@/api/explore'
 
 interface Props {
-  columns?: any[]
+  columns?: ColumnDef<Record<string, any>>[]
   data?: Record<string, any>[]
   logs: Record<string, any>[]
-  stats?: any
+  stats?: QueryStats
   isLoading?: boolean
   sourceId?: string | number
   teamId?: string | number
@@ -40,8 +52,103 @@ const emit = defineEmits<{
 
 const { toast } = useToast()
 
+// Table state
+const pagination = ref<PaginationState>({
+  pageIndex: 0,
+  pageSize: 100, // Default to 100 for compact view
+})
+const globalFilter = ref('')
+const columnVisibility = ref<VisibilityState>({})
+const columnOrder = ref<string[]>([])
+const displayTimezone = ref<'local' | 'utc'>(props.timezone)
+
+// Watch for external timezone prop changes
+watch(() => props.timezone, (newVal) => {
+  displayTimezone.value = newVal
+})
+
+// Create proper column definitions for the table - ensure all columns have proper IDs
+const tableColumns = computed<ColumnDef<Record<string, any>>[]>(() => {
+  if (props.columns?.length > 0) {
+    // Use the columns directly as they should already be properly formed from createColumns()
+    return props.columns.map(col => {
+      // Ensure each column has required properties
+      const id = col.id || col.accessorKey || String(col.header) || 'unknown'
+      return {
+        ...col,
+        id: id,
+        accessorKey: col.accessorKey || id,
+        header: col.header || id,
+        cell: col.cell || (({ getValue }) => getValue()),
+      }
+    })
+  }
+  
+  // Fallback: create basic columns from the first log entry
+  if (props.logs.length > 0) {
+    const firstLog = props.logs[0]
+    return Object.keys(firstLog).map(key => ({
+      id: key,
+      accessorKey: key,
+      header: key,
+      cell: ({ getValue }) => getValue(),
+    }))
+  }
+  
+  return []
+})
+
+// Initialize column state based on columns
+watch(tableColumns, (newColumns) => {
+  if (newColumns.length > 0) {
+    const newVisibility: VisibilityState = {}
+    const newOrder: string[] = []
+    
+    newColumns.forEach(col => {
+      if (col.id) {
+        newVisibility[col.id] = true
+        newOrder.push(col.id)
+      }
+    })
+    
+    columnVisibility.value = newVisibility
+    columnOrder.value = newOrder
+  }
+}, { immediate: true })
+
+// Create table
+const table = useVueTable({
+  get data() {
+    return props.logs
+  },
+  get columns() {
+    return tableColumns.value
+  },
+  state: {
+    get pagination() {
+      return pagination.value
+    },
+    get globalFilter() {
+      return globalFilter.value
+    },
+    get columnVisibility() {
+      return columnVisibility.value
+    },
+    get columnOrder() {
+      return columnOrder.value
+    },
+  },
+  onPaginationChange: updaterOrValue => valueUpdater(updaterOrValue, pagination),
+  onGlobalFilterChange: updaterOrValue => valueUpdater(updaterOrValue, globalFilter),
+  onColumnVisibilityChange: updaterOrValue => valueUpdater(updaterOrValue, columnVisibility),
+  onColumnOrderChange: updaterOrValue => valueUpdater(updaterOrValue, columnOrder),
+  getCoreRowModel: getCoreRowModel(),
+  getPaginationRowModel: getPaginationRowModel(),
+  getFilteredRowModel: getFilteredRowModel(),
+})
+
 // Format timestamp for compact view
-const formatTimestamp = (timestamp: any, timezone: string) => {
+const formatTimestamp = (timestamp: any) => {
   if (!timestamp) return ''
   
   const date = new Date(timestamp)
@@ -55,7 +162,7 @@ const formatTimestamp = (timestamp: any, timezone: string) => {
     hour12: false
   }
   
-  if (timezone === 'utc') {
+  if (displayTimezone.value === 'utc') {
     options.timeZone = 'UTC'
   }
   
@@ -189,17 +296,21 @@ const highlightLogfmt = (text: string) => {
   )
 }
 
-// Pre-computed rows for performance
-const renderedRows = computed(() => 
-  props.logs.map((row, index) => {
-    const ts = formatTimestamp(row[props.timestampField], props.timezone)
+// Pre-computed rows for performance - using table's paginated data
+const renderedRows = computed(() => {
+  // Use paginated and filtered rows from the table
+  const paginatedRows = table.getRowModel().rows
+  
+  return paginatedRows.map((tableRow, index) => {
+    const row = tableRow.original
+    const ts = formatTimestamp(row[props.timestampField])
     const sev = row[props.severityField] || ''
     const rawMsg = buildMessage(row)
     const msg = highlightLogfmt(rawMsg)
     const severityStyles = getSeverityClasses(sev)
     
     return {
-      id: `${row[props.timestampField]}-${index}`, // More stable key
+      id: `${row[props.timestampField]}-${tableRow.id}`, // Use table row ID for stability
       timestamp: ts,
       severity: sev,
       message: msg,
@@ -209,7 +320,7 @@ const renderedRows = computed(() =>
       bgClass: severityStyles.bg
     }
   })
-)
+})
 
 // Handle row click interactions
 const expandedRowId = ref<string | null>(null)
@@ -233,6 +344,17 @@ const handleClick = (event: Event, rowId: string) => {
 
 <template>
   <div class="h-full flex flex-col">
+    <!-- Shared Table Controls -->
+    <TableControls 
+      v-if="table"
+      :table="table"
+      :stats="stats"
+      :is-loading="isLoading"
+      :show-column-selector="false"
+      @update:timezone="displayTimezone = $event"
+      @update:globalFilter="globalFilter = $event"
+    />
+    
     <!-- Compact log list container -->
     <ScrollArea class="flex-1 font-mono text-xs">
       <div v-if="renderedRows.length > 0" class="space-y-0">
@@ -273,7 +395,12 @@ const handleClick = (event: Event, rowId: string) => {
       
       <!-- Empty state -->
       <div v-else class="p-4 text-center text-muted-foreground">
-        No logs to display
+        <template v-if="table.getState().globalFilter">
+          No logs matching "{{ table.getState().globalFilter }}"
+        </template>
+        <template v-else>
+          No logs to display
+        </template>
       </div>
     </ScrollArea>
   </div>
