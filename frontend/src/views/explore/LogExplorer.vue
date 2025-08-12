@@ -10,8 +10,8 @@ import {
 import { useRouter, useRoute } from "vue-router";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { useToast } from "@/components/ui/toast";
-import { Share2, WandSparkles } from "lucide-vue-next";
+import { useToast } from "@/composables/useToast";
+import { Share2, WandSparkles, Rows4, TerminalSquare, ChevronUp, ChevronDown } from "lucide-vue-next";
 import { TOAST_DURATION } from "@/lib/constants";
 import { useExploreStore } from "@/stores/explore";
 import { useTeamsStore } from "@/stores/teams";
@@ -20,13 +20,15 @@ import { useSavedQueriesStore } from "@/stores/savedQueries";
 import { FieldSideBar } from "@/components/field-sidebar";
 import { getErrorMessage } from "@/api/types";
 import DataTable from "./table/data-table.vue";
+import CompactLogList from "./table/CompactLogListSimple.vue";
 import SaveQueryModal from "@/components/collections/SaveQueryModal.vue";
 import QueryEditor from "@/components/query-editor/QueryEditor.vue";
-import { useSourceTeamManagement } from "@/composables/useSourceTeamManagement";
 import { useSavedQueries } from "@/composables/useSavedQueries";
 import { useExploreUrlSync } from "@/composables/useExploreUrlSync";
 import { useQuery } from "@/composables/useQuery";
 import { useTimeRange } from "@/composables/useTimeRange";
+
+import { useContextStore } from "@/stores/context";
 import type { ComponentPublicInstance } from "vue";
 import type { SaveQueryFormData } from "@/views/explore/types";
 import type { SavedTeamQuery } from "@/api/savedQueries";
@@ -56,13 +58,14 @@ const sourcesStore = useSourcesStore();
 const savedQueriesStore = useSavedQueriesStore();
 const { toast } = useToast();
 
-// Composables
-const {
-  isInitializing,
-  initializationError,
-  initializeFromUrl,
-  syncUrlFromState,
-  pushQueryHistoryEntry,
+// URL synchronization and state management
+// Handles URL parameter syncing, browser history, and initialization from URL
+const { 
+  isInitializing, 
+  initializationError, 
+  syncUrlFromState, 
+  pushQueryHistoryEntry, 
+  initializeFromUrl 
 } = useExploreUrlSync();
 
 const {
@@ -83,23 +86,77 @@ const {
 
 const { handleHistogramTimeRangeZoom } = useTimeRange();
 
-const {
-  isProcessingTeamChange,
-  isProcessingSourceChange,
-  isChangingContext,
-  isLoadingSourceDetails,
-  currentTeamId,
-  currentSourceId,
-  sourceDetails,
-  hasValidSource,
-  availableTeams,
-  availableSources,
-  selectedTeamName,
-  selectedSourceName,
-  availableFields,
-  handleTeamChange,
-  handleSourceChange,
-} = useSourceTeamManagement();
+// Use the new clean team/source management
+const contextStore = useContextStore();
+// Team/source management - now centralized in sourcesStore
+const availableSources = computed(() => sourcesStore.teamSources);
+const sourceDetails = computed(() => sourcesStore.currentSourceDetails);
+const hasValidSource = computed(() => sourcesStore.hasValidCurrentSource);
+const isLoadingTeamSources = computed(() => sourcesStore.isLoadingTeamSources);
+const isLoadingSourceDetails = computed(() => sourcesStore.isLoadingSourceDetails);
+const teamSourcesError = computed(() => sourcesStore.teamSourcesError);
+const sourceDetailsError = computed(() => sourcesStore.sourceDetailsError);
+
+// Convenience aliases for template compatibility
+const teamSources = availableSources;
+const isProcessingTeamChange = isLoadingTeamSources;
+const isProcessingSourceChange = isLoadingSourceDetails;
+
+// Computed properties for the clean approach
+const currentTeamId = computed(() => contextStore.teamId);
+const currentSourceId = computed(() => contextStore.sourceId);
+const availableTeams = computed(() => teamsStore.teams || []);
+const selectedTeamName = computed(() => teamsStore.currentTeam?.name || 'Select team');
+const selectedSourceName = computed(() => {
+  if (!currentSourceId.value) return 'Select source';
+  const source = availableSources.value.find(s => s.id === currentSourceId.value);
+  return source ? source.name : 'Select source';
+});
+
+// Available fields for sidebar/autocompletion
+const availableFields = computed(() => {
+  if (!sourceDetails.value?.columns) return [];
+  return [...sourceDetails.value.columns].sort((a, b) => a.name.localeCompare(b.name));
+});
+
+// Simple loading state for UI (replacement for isChangingContext)
+const isChangingContext = computed(() => {
+  console.log('Checking isChangingContext...');
+  const teamLoading = sourcesStore.isLoadingTeamSources;
+  const sourceLoading = sourcesStore.isLoadingSourceDetails;
+  console.log(`Store loading states: team=${teamLoading}, source=${sourceLoading}`);
+  const result = teamLoading || sourceLoading;
+  console.log(`isChangingContext result: ${result}`);
+  return result;
+});
+
+// Simple team/source change handlers using router
+function handleTeamChange(teamIdStr: string) {
+  const teamId = parseInt(teamIdStr);
+  if (isNaN(teamId)) return;
+  
+  console.log(`LogExplorer: Changing team to ${teamId}`);
+  router.replace({
+    query: {
+      ...route.query,
+      team: String(teamId),
+      source: undefined // Clear source when team changes
+    }
+  });
+}
+
+function handleSourceChange(sourceIdStr: string) {
+  const sourceId = parseInt(sourceIdStr);
+  if (isNaN(sourceId)) return;
+  
+  console.log(`LogExplorer: Changing source to ${sourceId}`);
+  router.replace({
+    query: {
+      ...route.query,
+      source: String(sourceId)
+    }
+  });
+}
 
 const {
   showSaveQueryModal,
@@ -139,6 +196,7 @@ const timeRangeSelectorRef = ref<InstanceType<typeof TimeRangeSelector> | null>(
   null
 );
 const sortKeysInfoOpen = ref(false); // State for sort keys info expandable section
+const isHistogramVisible = ref(true); // State for histogram visibility toggle
 
 // Query execution deduplication
 const executingQueryId = ref<string | null>(null);
@@ -149,6 +207,16 @@ let lastExecutionKey = "";
 const displayTimezone = computed(() =>
   localStorage.getItem("logchef_timezone") === "utc" ? "utc" : "local"
 );
+
+// Display mode for table vs compact view
+const displayMode = ref<'table' | 'compact'>(
+  (localStorage.getItem("logchef_display_mode") as 'table' | 'compact') || 'table'
+);
+
+// Watch display mode changes and persist to localStorage
+watch(displayMode, (newMode) => {
+  localStorage.setItem("logchef_display_mode", newMode);
+}, { immediate: false });
 
 // UI state computed properties
 const showLoadingState = computed(
@@ -165,9 +233,9 @@ const showNoSourcesState = computed(
   () =>
     !isInitializing.value &&
     !showNoTeamsState.value &&
-    currentTeamId.value !== null &&
-    currentTeamId.value > 0 &&
-    (!availableSources.value || availableSources.value.length === 0)
+    contextStore.hasTeam &&
+    (!availableSources.value || availableSources.value.length === 0) &&
+    !isLoadingTeamSources.value
 );
 
 // Computed property to show the "Source Not Connected" state
@@ -182,7 +250,7 @@ const showSourceNotConnectedState = computed(() => {
     return false;
   }
   // Don't show while details for the *current* source are loading
-  if (sourcesStore.isLoadingSourceDetails(currentSourceId.value)) {
+  if (sourcesStore.isLoadingSourceDetailsForId(currentSourceId.value)) {
     return false;
   }
   // Show only if details *have* loaded AND the source is invalid/disconnected
@@ -204,7 +272,7 @@ const showSourceConnectedState = computed(() => {
     return false;
   }
   // Don't show while details for the *current* source are loading
-  if (sourcesStore.isLoadingSourceDetails(currentSourceId.value)) {
+  if (sourcesStore.isLoadingSourceDetailsForId(currentSourceId.value)) {
     return false;
   }
   // Check if the source is connected
@@ -347,6 +415,19 @@ const handleQueryExecution = async (debouncingKey = "") => {
     console.log(`LogExplorer: Executing query with ID ${executionId}`);
     const result = await executeQuery();
 
+    // Handle coordination errors with auto-retry
+    if (result && !result.success && result.error?.error_type === 'CoordinationError') {
+      console.log(`LogExplorer: Coordination error detected, scheduling retry in 100ms`);
+      // Don't clear execution state yet, let the retry handle it
+      setTimeout(() => {
+        if (executingQueryId.value === executionId) {
+          console.log(`LogExplorer: Retrying query after coordination error`);
+          handleQueryExecution(`${debouncingKey}-retry`);
+        }
+      }, 100);
+      return result;
+    }
+
     // Only push a history entry if the query executed successfully
     // But don't do it during initialization to avoid duplicate history entries
     if (result && result.success && !isInitializing.value) {
@@ -392,112 +473,39 @@ function resetQueriesForSourceChange() {
   exploreStore.resetQueryContentForSourceChange();
 }
 
-// Watch for source changes to fetch details AND saved queries
+// Load saved queries when source changes
 watch(
   () => currentSourceId.value,
   async (newSourceId, oldSourceId) => {
-    // Skip during initialization to prevent redundant calls
-    if (isInitializing.value) {
-      return;
-    }
-
-    // Reset sort keys info panel state on source change
-    sortKeysInfoOpen.value = false;
-
-    if (newSourceId !== oldSourceId || (!oldSourceId && newSourceId)) {
-      // Reset queries when source changes
-      resetQueriesForSourceChange();
-
-      // Fetch Source Details
-      if (newSourceId && newSourceId > 0) {
-        // Verify source existence
-        const sourceExists = availableSources.value.some(
-          (source) => source.id === newSourceId
-        );
-        if (sourceExists) {
-          // Fetch details (debounced)
-          setTimeout(async () => {
-            if (currentSourceId.value === newSourceId) {
-              // Check if still the same after timeout
-              await sourcesStore.loadSourceDetails(newSourceId);
-              
-              // Execute query after source details are loaded if we have valid data
-              if (
-                sourcesStore.currentSourceDetails?.id === newSourceId &&
-                sourcesStore.hasValidCurrentSource &&
-                exploreStore.timeRange
-              ) {
-                console.log("LogExplorer: Executing query after source change and details loaded");
-                // Execute query immediately after source details are confirmed loaded
-                handleQueryExecution('source-change-query');
-              }
-            }
-          }, 50);
-
-          // Fetch Saved Queries
-          if (currentTeamId.value) {
-            // Ensure team ID is available
-            await loadSourceQueries(currentTeamId.value, newSourceId);
-          }
-        }
-      } else {
-        // Clear saved queries if source is deselected
-        if (currentTeamId.value) {
-          await loadSourceQueries(currentTeamId.value, 0);
-        }
-      }
+    if (isInitializing.value) return;
+    if (!newSourceId || !currentTeamId.value) return;
+    try {
+      await loadSourceQueries(currentTeamId.value, newSourceId);
+    } catch (e) {
+      console.error('Error loading saved queries for source:', e);
     }
   },
-  { immediate: false } // Don't run immediately, wait for initialization
-);
+  { immediate: false }
+)
 
-// Watch for changes in currentTeamId to update sources AND saved queries
+// Keep store selection in sync with URL when team/source query params change
 watch(
-  () => currentTeamId.value,
-  async (newTeamId, oldTeamId) => {
-    // Skip during initialization
-    if (isInitializing.value) {
-      return;
-    }
-
-    if (newTeamId !== oldTeamId && newTeamId) {
-      // Reset queries when team changes
-      resetQueriesForSourceChange();
-
-      // Load sources for the new team
-      const sourcesResult = await sourcesStore.loadTeamSources(newTeamId);
-      let newSourceIdToLoadQueries: number | null = null;
-
-      if (
-        !sourcesResult.success ||
-        !sourcesResult.data ||
-        sourcesResult.data.length === 0
-      ) {
-        exploreStore.setSource(0);
-        newSourceIdToLoadQueries = 0; // Signal to load empty queries
-      } else {
-        const currentSourceExists = sourcesStore.teamSources.some(
-          (source) => source.id === exploreStore.sourceId
-        );
-        if (!currentSourceExists && sourcesStore.teamSources.length > 0) {
-          const firstSourceId = sourcesStore.teamSources[0].id;
-          exploreStore.setSource(firstSourceId);
-          await sourcesStore.loadSourceDetails(firstSourceId);
-          newSourceIdToLoadQueries = firstSourceId; // Load queries for the new source
-        } else {
-          // If current source is still valid, load its queries
-          newSourceIdToLoadQueries = exploreStore.sourceId;
-        }
+  () => [route.query.team, route.query.source],
+  async ([teamParam, sourceParam]) => {
+    if (isInitializing.value) return;
+    const t = teamParam ? parseInt(teamParam as string) : null;
+    const s = sourceParam ? parseInt(sourceParam as string) : null;
+    if (t && t !== currentTeamId.value) {
+      await handleTeamChange(t);
+      // If URL includes a specific source, switch to it after team change
+      if (s) {
+        await handleSourceChange(s);
       }
-
-      // Load Saved Queries for the new team/source combination
-      if (newSourceIdToLoadQueries !== null) {
-        await loadSourceQueries(newTeamId, newSourceIdToLoadQueries);
-      }
+    } else if (s && s !== currentSourceId.value) {
+      await handleSourceChange(s);
     }
-  },
-  { immediate: false } // Don't run immediately
-);
+  }
+)
 
 // Function to handle drill-down from DataTable to add a filter condition
 const handleDrillDown = (data: {
@@ -794,6 +802,21 @@ const addSortKeyExample = () => {
   });
 };
 
+// Histogram visibility toggle
+const toggleHistogramVisibility = () => {
+  isHistogramVisible.value = !isHistogramVisible.value;
+};
+
+// Auto-hide histogram when it's not eligible (e.g., in SQL mode)
+watch(
+  () => exploreStore.isHistogramEligible,
+  (isEligible) => {
+    if (!isEligible && isHistogramVisible.value) {
+      isHistogramVisible.value = false;
+    }
+  }
+);
+
 // AI SQL generation handler (now handled inline in QueryEditor)
 const handleGenerateAISQL = async ({ naturalLanguageQuery }: { naturalLanguageQuery: string }) => {
   try {
@@ -815,38 +838,13 @@ const handleGenerateAISQL = async ({ naturalLanguageQuery }: { naturalLanguageQu
       currentQuery = sqlQuery.value.trim();
     }
 
-    const result = await exploreStore.generateAiSql(naturalLanguageQuery, currentQuery);
+    // Generate AI SQL and store result for the QueryEditor to access
+    await exploreStore.generateAiSql(naturalLanguageQuery, currentQuery);
 
-    if (result.success && 'data' in result && result.data) {
-      // Switch to SQL mode and update the content
-      changeMode('sql');
-      exploreStore.setRawSql(result.data.sql_query);
-
-      // Focus the editor
-      nextTick(() => {
-        queryEditorRef.value?.focus(true);
-      });
-    } else {
-      // Show error in toast
-      const errorMessage = result.error && 'message' in result.error
-        ? result.error.message
-        : 'Failed to generate SQL';
-
-      toast({
-        title: "AI SQL Generation Failed",
-        description: errorMessage,
-        variant: "destructive",
-        duration: TOAST_DURATION.ERROR,
-      });
-    }
+    // The AI dialog in QueryEditor will handle success/error display and insertion
   } catch (error) {
     console.error("Error generating AI SQL:", error);
-    toast({
-      title: "AI SQL Generation Error",
-      description: getErrorMessage(error),
-      variant: "destructive",
-      duration: TOAST_DURATION.ERROR,
-    });
+    // The store will have the error state that the AI dialog can display
   }
 };
 
@@ -902,16 +900,35 @@ watch(
 
     console.log(`LogExplorer: query_id changed from ${oldQueryId} to ${newQueryId}`);
 
+    // Ensure team/source in URL match current selection to avoid race conditions
+    const urlTeam = route.query.team ? parseInt(route.query.team as string) : null;
+    const urlSource = route.query.source ? parseInt(route.query.source as string) : null;
+
+    // If URL doesn't specify team/source yet, or mismatch with current, wait briefly
+    if (!urlTeam || !urlSource || urlTeam !== currentTeamId.value || urlSource !== currentSourceId.value) {
+      // Poll for up to 500ms for context to align
+      for (let i = 0; i < 5; i++) {
+        await new Promise(r => setTimeout(r, 100));
+        if (
+          route.query.team && route.query.source &&
+          parseInt(route.query.team as string) === (currentTeamId.value ?? 0) &&
+          parseInt(route.query.source as string) === (currentSourceId.value ?? 0)
+        ) {
+          break;
+        }
+      }
+    }
+
     // If we have a query ID, team ID and source ID, load the query
-    if (newQueryId && currentTeamId.value && currentSourceId.value) {
+    if (newQueryId && urlTeam && urlSource) {
       try {
         console.log(`LogExplorer: Loading saved query ${newQueryId}`);
         isLoadingQuery.value = true;
 
-        // Fetch query details
+        // Fetch query details using the team/source from URL to avoid mismatches
         const fetchResult = await savedQueriesStore.fetchTeamSourceQueryDetails(
-          currentTeamId.value,
-          currentSourceId.value,
+          urlTeam,
+          urlSource,
           newQueryId as string
         );
 
@@ -958,60 +975,22 @@ watch(
 // Component lifecycle
 onMounted(async () => {
   try {
-    // Reset admin teams and load user teams
-    teamsStore.resetAdminTeams();
-
-    // Initialize state from URL
+    // Initialize from URL parameters
     await initializeFromUrl();
 
-    // Force a reload of user teams to ensure latest membership data
-    await teamsStore.loadUserTeams();
-
-    // Skip validation if there's an initialization error - it's already handled
-    if (!initializationError.value) {
-      // After loading teams, verify the current teamId is still valid
+    // Execute initial query if we have required parameters and no query has been executed yet
+    setTimeout(async () => {
       if (
-        currentTeamId.value &&
-        !teamsStore.userBelongsToTeam(currentTeamId.value)
+        !exploreStore.lastExecutionTimestamp &&
+        exploreStore.sourceId &&
+        exploreStore.timeRange &&
+        sourcesStore.currentSourceDetails?.id === exploreStore.sourceId &&
+        sourcesStore.hasValidCurrentSource
       ) {
-        console.log(
-          `Current team ${currentTeamId.value} is no longer accessible, resetting selection`
-        );
-
-        // Select the first available team instead
-        if (teamsStore.userTeams.length > 0) {
-          exploreStore.setSource(0); // First clear the source
-          teamsStore.setCurrentTeam(teamsStore.userTeams[0].id);
-        } else {
-          exploreStore.setSource(0);
-          teamsStore.setCurrentTeam(0); // Clear the current team
-        }
+        console.log("LogExplorer: Executing initial query on mount");
+        await handleQueryExecution('initial-mount-query');
       }
-
-      // Execute initial query if we have required parameters and no query has been executed yet
-      // Wait a bit to ensure the source details are loaded
-      setTimeout(async () => {
-        // Only execute if we have enough parameters and no query has been executed yet
-        if (
-          !exploreStore.lastExecutionTimestamp &&  // No query executed yet
-          exploreStore.sourceId &&
-          exploreStore.timeRange &&
-          sourcesStore.currentSourceDetails?.id === exploreStore.sourceId &&
-          sourcesStore.hasValidCurrentSource // Ensure source is actually valid/connected
-        ) {
-          console.log("LogExplorer: Executing initial query on mount");
-          await handleQueryExecution('initial-mount-query');
-        } else {
-          console.log("LogExplorer: Skipping initial query execution, missing requirements or query already executed", {
-            hasLastExecution: !!exploreStore.lastExecutionTimestamp,
-            sourceId: exploreStore.sourceId,
-            hasTimeRange: !!exploreStore.timeRange,
-            sourceDetailsLoaded: sourcesStore.currentSourceDetails?.id === exploreStore.sourceId,
-            hasValidSource: sourcesStore.hasValidCurrentSource
-          });
-        }
-      }, 500); // Increased timeout to allow more time for source details to load
-    }
+    }, 300);
   } catch (error) {
     console.error("Error during LogExplorer mount:", error);
     toast({
@@ -1054,7 +1033,12 @@ onBeforeUnmount(() => {
       <div v-else-if="showNoSourcesState" class="flex flex-col h-[calc(100vh-12rem)]">
         <!-- Header bar for team selection -->
         <div class="border-b py-2 px-4 flex items-center h-12">
-          <TeamSourceSelector />
+          <TeamSourceSelector 
+  :team-sources="teamSources"
+  :is-loading-team-sources="isLoadingTeamSources"
+  :is-processing-team-change="isProcessingTeamChange"
+  :is-processing-source-change="isProcessingSourceChange"
+/>
         </div>
         <!-- Empty state content -->
         <div class="flex flex-col items-center justify-center flex-1 gap-4 text-center">
@@ -1070,7 +1054,12 @@ onBeforeUnmount(() => {
       <div v-else-if="showSourceNotConnectedState" class="flex flex-col h-screen overflow-hidden">
         <!-- Filter Bar with Team/Source Selection -->
         <div class="border-b bg-background py-2 px-4 flex items-center h-12 shadow-sm">
-          <TeamSourceSelector />
+          <TeamSourceSelector 
+  :team-sources="teamSources"
+  :is-loading-team-sources="isLoadingTeamSources"
+  :is-processing-team-change="isProcessingTeamChange"
+  :is-processing-source-change="isProcessingSourceChange"
+/>
         </div>
 
         <!-- Source Not Connected Message -->
@@ -1160,7 +1149,7 @@ onBeforeUnmount(() => {
               <!-- Loading indicator during context changes -->
               <template v-if="
                 isChangingContext ||
-                (currentSourceId && isLoadingSourceDetails)
+                (currentSourceId && sourcesStore.isLoadingSourceDetails)
               ">
                 <div
                   class="flex items-center justify-center text-muted-foreground p-6 border rounded-md bg-card shadow-sm animate-pulse">
@@ -1283,20 +1272,23 @@ onBeforeUnmount(() => {
 
               <!-- "Select source" message - only when no source selected -->
               <template v-else-if="currentTeamId && !currentSourceId">
-                <div
-                  class="flex items-center justify-center text-muted-foreground p-6 border rounded-md bg-card shadow-sm">
-                  <div class="text-center">
-                    <div class="mb-2 text-muted-foreground/70">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
-                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                        class="mx-auto mb-1">
-                        <path
-                          d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z" />
+                <div class="flex items-center justify-center min-h-[400px]">
+                  <div class="text-center max-w-md mx-auto">
+                    <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-muted/50 flex items-center justify-center">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+                        class="text-muted-foreground/70">
+                        <path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2z" />
+                        <polyline points="3,7 12,13 21,7" />
                       </svg>
                     </div>
-                    <p class="text-sm">
-                      Please select a log source to begin exploring.
+                    <h3 class="text-lg font-medium mb-2">Select a Log Source</h3>
+                    <p class="text-sm text-muted-foreground mb-4">
+                      Choose a log source from the dropdown above to start exploring your data.
                     </p>
+                    <div class="text-xs text-muted-foreground/70">
+                      Need to add a new source? Click "Add Source" in the selector.
+                    </div>
                   </div>
                 </div>
               </template>
@@ -1335,30 +1327,85 @@ onBeforeUnmount(() => {
             ">
               <!-- Group By controls above histogram -->
               <div class="flex items-center justify-between mb-2">
-                <div class="text-xs font-medium">Time Series Distribution</div>
+                <div class="flex items-center space-x-2">
+                  <div class="text-xs font-medium">Time Series Distribution</div>
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    class="h-6 w-6 p-0 hover:bg-gray-100" 
+                    @click="toggleHistogramVisibility"
+                    :title="isHistogramVisible ? 'Hide histogram' : 'Show histogram'"
+                  >
+                    <ChevronUp v-if="isHistogramVisible" class="h-3 w-3" />
+                    <ChevronDown v-else class="h-3 w-3" />
+                  </Button>
+                </div>
                 <GroupBySelector :available-fields="availableFields" />
               </div>
 
               <!-- Histogram visualization -->
-              <HistogramVisualization :group-by="exploreStore.groupByField" @zoom-time-range="onHistogramTimeRangeZoom"
-                @update:timeRange="onHistogramTimeRangeZoom" />
+              <HistogramVisualization 
+                v-if="isHistogramVisible"
+                :group-by="exploreStore.groupByField" 
+                @zoom-time-range="onHistogramTimeRangeZoom"
+                @update:timeRange="onHistogramTimeRangeZoom" 
+              />
             </div>
 
             <!-- Results Section -->
-            <div class="flex-1 overflow-hidden flex flex-col border-t mt-2">
+            <div class="flex-1 overflow-hidden flex flex-col border-t mt-2" v-if="
+              !isChangingContext &&
+              currentSourceId &&
+              hasValidSource &&
+              exploreStore.timeRange
+            ">
               <!-- Results Area -->
               <div class="flex-1 overflow-hidden relative bg-background">
+                <!-- Display Mode Toggle (always visible when we have data) -->
+                <div v-if="exploreStore.logs?.length > 0" class="flex items-center justify-between p-2 border-b bg-muted/30">
+                  <div class="text-sm font-medium">
+                    {{ exploreStore.logs?.length?.toLocaleString() }} logs
+                  </div>
+                  <div class="flex items-center space-x-1">
+                    <Button variant="ghost" size="sm" class="h-8 px-2 text-xs"
+                        :class="{ 'bg-muted': displayMode === 'table' }" 
+                        @click="displayMode = 'table'"
+                        title="Table view">
+                        <Rows4 class="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="sm" class="h-8 px-2 text-xs"
+                        :class="{ 'bg-muted': displayMode === 'compact' }" 
+                        @click="displayMode = 'compact'"
+                        title="Compact view">
+                        <TerminalSquare class="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+
                 <!-- Results Table -->
                 <template v-if="exploreStore.logs?.length > 0 || isExecutingQuery">
-                  <!-- Render DataTable only if columns are available -->
-                  <DataTable v-if="exploreStore.columns?.length > 0"
-                    :key="`${exploreStore.sourceId}-${exploreStore.activeMode}-${exploreStore.queryId}`"
-                    :columns="exploreStore.columns as any" :data="exploreStore.logs" :stats="exploreStore.queryStats"
-                    :is-loading="isExecutingQuery" :source-id="String(exploreStore.sourceId)"
-                    :team-id="teamsStore.currentTeamId" :timestamp-field="sourcesStore.currentSourceDetails?._meta_ts_field
-                      " :severity-field="sourcesStore.currentSourceDetails?._meta_severity_field
-                        " :timezone="displayTimezone" :query-fields="queryFields" :regex-highlights="regexHighlights"
-                    :active-mode="activeMode" @drill-down="handleDrillDown" />
+                  <!-- Render DataTable or CompactLogList based on display mode -->
+                  <component
+                    v-if="exploreStore.columns?.length > 0"
+                    :is="displayMode === 'table' ? DataTable : CompactLogList"
+                    :key="`${exploreStore.sourceId}-${exploreStore.activeMode}-${exploreStore.queryId}-${displayMode}`"
+                    :columns="exploreStore.columns as any"
+                    :data="exploreStore.logs"
+                    :logs="exploreStore.logs"
+                    :stats="exploreStore.queryStats"
+                    :is-loading="isExecutingQuery"
+                    :source-id="String(exploreStore.sourceId)"
+                    :team-id="teamsStore.currentTeamId"
+                    :timestamp-field="sourcesStore.currentSourceDetails?._meta_ts_field"
+                    :severity-field="sourcesStore.currentSourceDetails?._meta_severity_field"
+                    :timezone="displayTimezone"
+                    :query-fields="queryFields"
+                    :regex-highlights="regexHighlights"
+                    :active-mode="activeMode"
+                    :display-mode="displayMode"
+                    @drill-down="handleDrillDown"
+                    @update:display-mode="displayMode = $event"
+                  />
 
                   <!-- Loading placeholder -->
                   <div v-else-if="isExecutingQuery"

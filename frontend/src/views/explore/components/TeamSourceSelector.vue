@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { Button } from '@/components/ui/button'
 import { formatSourceName } from '@/utils/format'
-import { useSourceTeamManagement } from '@/composables/useSourceTeamManagement'
+import { useContextStore } from '@/stores/context'
+import { useTeamsStore } from '@/stores/teams'
+import { useSourcesStore } from '@/stores/sources'
 import {
   Select,
   SelectContent,
@@ -16,18 +17,62 @@ import {
 
 const router = useRouter()
 
-const {
-  isProcessingTeamChange,
-  isProcessingSourceChange,
-  currentTeamId,
-  currentSourceId,
-  availableTeams,
-  availableSources,
-  selectedTeamName,
-  selectedSourceName,
-  handleTeamChange,
-  handleSourceChange
-} = useSourceTeamManagement()
+// Use the centralized stores
+const contextStore = useContextStore()
+const teamsStore = useTeamsStore()
+const sourcesStore = useSourcesStore()
+
+// Computed properties for the clean approach
+const currentTeamId = computed(() => contextStore.teamId)
+const currentSourceId = computed(() => contextStore.sourceId)
+const availableTeams = computed(() => teamsStore.teams || [])
+const availableSources = computed(() => sourcesStore.teamSources || [])
+const selectedTeamName = computed(() => teamsStore.currentTeam?.name || 'Select team')
+const selectedSourceName = computed(() => {
+  if (!currentSourceId.value) return 'Select source'
+  const source = availableSources.value.find(s => s.id === currentSourceId.value)
+  return source ? formatSourceName(source) : 'Select source'
+})
+
+// Computed properties for loading states (direct boolean values)
+const isTeamDisabled = ref(false)
+const isSourceDisabled = ref(false)
+
+// Watch the store loading states and update our local refs
+watch(() => sourcesStore.isLoadingTeamSources, (value) => {
+  isTeamDisabled.value = Boolean(value)
+}, { immediate: true })
+
+watch(() => [sourcesStore.isLoadingSourceDetails, currentTeamId.value, availableSources.value.length], 
+([loadingDetails, teamId, sourcesLength]) => {
+  isSourceDisabled.value = Boolean(loadingDetails) || !teamId || sourcesLength === 0
+}, { immediate: true })
+
+// Simple handlers using router
+function handleTeamChange(teamIdStr: string) {
+  const teamId = parseInt(teamIdStr)
+  if (isNaN(teamId)) return
+  
+  router.replace({
+    query: {
+      ...router.currentRoute.value.query,
+      team: String(teamId),
+      source: undefined // Clear source when team changes
+    }
+  })
+}
+
+function handleSourceChange(sourceIdStr: string) {
+  const sourceId = parseInt(sourceIdStr)
+  if (isNaN(sourceId)) return
+  
+  router.replace({
+    query: {
+      ...router.currentRoute.value.query,
+      source: String(sourceId)
+    }
+  })
+}
 
 // Expose the source connection status to parent components
 const isSourceConnected = computed(() => {
@@ -46,7 +91,7 @@ defineExpose({
   <div class="flex items-center space-x-3">
     <!-- Team Selector -->
     <Select :model-value="currentTeamId?.toString() ?? ''" @update:model-value="handleTeamChange"
-      :disabled="isProcessingTeamChange">
+      :disabled="isTeamDisabled">
       <SelectTrigger class="h-8 text-sm w-48">
         <SelectValue placeholder="Select team">{{ selectedTeamName }}</SelectValue>
       </SelectTrigger>
@@ -62,7 +107,7 @@ defineExpose({
 
     <!-- Source Selector -->
     <Select :model-value="currentSourceId?.toString() ?? ''" @update:model-value="handleSourceChange"
-      :disabled="isProcessingSourceChange || !currentTeamId || availableSources.length === 0">
+      :disabled="isSourceDisabled">
       <SelectTrigger class="h-8 text-sm w-64">
         <SelectValue placeholder="Select source">{{ selectedSourceName }}</SelectValue>
       </SelectTrigger>
@@ -87,11 +132,6 @@ defineExpose({
       </SelectContent>
     </Select>
 
-    <!-- Add Source Button (when needed) -->
-    <Button v-if="currentTeamId && (!currentSourceId || availableSources.length === 0)" 
-      size="sm" class="h-8" 
-      @click="router.push({ name: 'NewSource' })">
-      Add Source
-    </Button>
+
   </div>
 </template>

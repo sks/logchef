@@ -4,6 +4,7 @@ import { useExploreStore } from '@/stores/explore';
 import { useTeamsStore } from '@/stores/teams';
 import { useSourcesStore } from '@/stores/sources';
 import { useSavedQueriesStore } from '@/stores/savedQueries';
+// Removed complex coordination imports - using clean router-first approach now
 import {
   CalendarDateTime,
   now,
@@ -118,108 +119,23 @@ export function useExploreUrlSync() {
         exploreStore.setSource(0);
         sourcesStore.clearCurrentSourceDetails();
 
+        // Mark initialization as complete even with error
+        isInitializing.value = false;
+        
         // Exit early but don't throw - allow the component to handle this state
         return;
       }
 
-      // 2. Set Team from URL or default
-      let teamId: number | null = null;
-      const urlTeamIdStr = route.query.team as string | undefined;
-      if (urlTeamIdStr) {
-        const parsedTeamId = parseInt(urlTeamIdStr);
-        if (!isNaN(parsedTeamId) && teamsStore.teams.some(t => t.id === parsedTeamId)) {
-          teamId = parsedTeamId;
-        } else {
-          initializationError.value = `Invalid or inaccessible team ID: ${urlTeamIdStr}. Falling back to default.`;
-        }
-      }
-      if (!teamId) {
-        teamId = teamsStore.teams[0].id; // Default to first team
+      // For explore routes without team/source params, ensure proper initialization
+      if (route.path.startsWith('/logs/') && Object.keys(route.query).length === 0) {
+        console.log('useExploreUrlSync: Initializing explore route with no URL params - teams are available');
+        // Teams are loaded, router guard should have set a default team
+        // Just ensure we complete initialization quickly
       }
 
-      // Set team *before* loading sources
-      if (teamsStore.currentTeamId !== teamId) {
-        teamsStore.setCurrentTeam(teamId);
-      }
-
-      // 3. Load Sources for the selected team (wait if necessary)
-      await sourcesStore.loadTeamSources(teamId);
-
-      // 4. Set Source from URL or default (validate against loaded sources)
-      let sourceId: number | null = null;
-      const urlSourceIdStr = route.query.source as string | undefined;
-
-      if (urlSourceIdStr) {
-        const parsedSourceId = parseInt(urlSourceIdStr);
-
-        if (!isNaN(parsedSourceId) && sourcesStore.teamSources.some(s => s.id === parsedSourceId)) {
-          sourceId = parsedSourceId;
-        } else {
-          initializationError.value = `Invalid or inaccessible source ID: ${urlSourceIdStr} for team ${teamId}. Falling back to default.`;
-        }
-      }
-      if (!sourceId && sourcesStore.teamSources.length > 0) {
-        sourceId = sourcesStore.teamSources[0].id; // Default to first source
-      }
-
-      let didTriggerSourceDetailsLoad = false;
-
-      // Set source ID and potentially load details
-      if (sourceId) {
-         // Check if this would be a source change
-         const isSourceChange = exploreStore.sourceId !== sourceId;
-
-         if (isSourceChange) {
-            // Use the centralized action from the store
-            exploreStore.setSource(sourceId);
-
-            // For initialization, pre-load source details to prevent race conditions
-            try {
-              console.log(`useExploreUrlSync: Pre-loading source details for ID ${sourceId}`);
-              await sourcesStore.loadSourceDetails(sourceId);
-              didTriggerSourceDetailsLoad = true;
-
-              // Check if details loaded
-              console.log(`useExploreUrlSync: Checking if source details are loaded for ID ${sourceId}`);
-              if (!sourcesStore.currentSourceDetails) {
-                console.warn(`useExploreUrlSync: Source details still not loaded after delay for ID ${sourceId}`);
-              } else if (!isCorrectSourceDetail(sourcesStore.currentSourceDetails, sourceId)) {
-                console.warn(`useExploreUrlSync: Source details don't match expected source ID ${sourceId}`);
-              } else {
-                console.log(`useExploreUrlSync: Successfully loaded details for source ID ${sourceId}`);
-              }
-            } catch (error) {
-              console.error(`useExploreUrlSync: Error loading source details:`, error);
-              // Don't fail the whole initialization for this
-            }
-         } else {
-            console.log(`useExploreUrlSync: Source ID unchanged at ${sourceId}`);
-         }
-      } else {
-         exploreStore.setSource(0); // Explicitly set to 0 if no valid source
-         sourcesStore.clearCurrentSourceDetails();
-         initializationError.value = `No sources available for team ${teamId}.`;
-      }
-
-      // Now let's delegate to the store's initializeFromUrl method
-      // to handle all the other parameters in a centralized way
+      // Team/source initialization is now handled by router guard
+      // Just initialize query params from URL
       exploreStore.initializeFromUrl(route.query as Record<string, string | undefined>);
-
-      // If we changed source but haven't loaded details yet, add a small delay to allow the details to load
-      if (sourceId && !didTriggerSourceDetailsLoad && !sourcesStore.currentSourceDetails) {
-        console.log(`useExploreUrlSync: Waiting for source details to load for ID ${sourceId}`);
-
-        // Wait a bit for any in-flight source detail requests to complete
-        await new Promise(resolve => setTimeout(resolve, 100));
-
-        // Check if details loaded
-        console.log(`useExploreUrlSync: Checking if source details are loaded for ID ${sourceId}`);
-        if (!sourcesStore.currentSourceDetails) {
-          console.warn(`useExploreUrlSync: Source details still not loaded after delay for ID ${sourceId}`);
-        } else if (!isCorrectSourceDetail(sourcesStore.currentSourceDetails, sourceId)) {
-          console.warn(`useExploreUrlSync: Source details don't match expected source ID ${sourceId}`);
-        }
-      }
 
     } catch (error: any) {
       console.error("useExploreUrlSync: Error during initialization:", error);
@@ -262,6 +178,8 @@ export function useExploreUrlSync() {
        return;
     }
 
+    // Note: Team/source coordination is now handled by router guard, not here
+
     // Skip this URL sync if the flag is set
     if (skipNextUrlSync.value) {
       console.log("Skipping URL sync as requested - waiting for pushQueryHistoryEntry");
@@ -273,6 +191,16 @@ export function useExploreUrlSync() {
     if (preservingRelativeTime && route.query.relativeTime) {
       console.log(`Protecting relativeTime=${route.query.relativeTime} from URL sync`);
       return;
+    }
+
+    // Validate that current source belongs to current team before syncing
+    if (exploreStore.sourceId && teamsStore.currentTeamId) {
+      const currentTeamSources = sourcesStore.teamSources || [];
+      const sourceExists = currentTeamSources.some(s => s.id === exploreStore.sourceId);
+      if (!sourceExists) {
+        console.log(`Skipping URL sync - source ${exploreStore.sourceId} doesn't belong to team ${teamsStore.currentTeamId}`);
+        return;
+      }
     }
 
     // Use the store's urlQueryParameters computed property

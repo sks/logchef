@@ -5,6 +5,7 @@ import {
 } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { error } from "@/utils/debug";
+import { contextRouterGuard } from "./contextGuard";
 
 // Import the error component for reuse
 import ComponentLoadError from "@/views/error/ComponentLoadError.vue";
@@ -298,6 +299,9 @@ router.beforeEach(async (to) => {
   if (to.matched.some((record) => record.meta.requiresAdmin) && !isAdmin) {
     return { name: "Forbidden" };
   }
+
+  // Update context store based on route params (team/source)
+  contextRouterGuard(to);
 });
 
 export default router;

@@ -55,11 +55,44 @@ import {
 import { useAuthStore } from "@/stores/auth";
 import { useThemeStore } from "@/stores/theme";
 import { useMetaStore } from "@/stores/meta";
-import { ref, onMounted, watch } from "vue";
+import { ref, onMounted, watch, computed } from "vue";
+import { useTeamsStore } from "@/stores/teams";
+import { useExploreStore } from "@/stores/explore";
+import { useRouter } from "vue-router";
 
 const authStore = useAuthStore();
 const themeStore = useThemeStore();
 const metaStore = useMetaStore();
+const teamsStore = useTeamsStore();
+const exploreStore = useExploreStore();
+const router = useRouter();
+
+// Function to navigate to collections with clean URL  
+const navigateToCollections = () => {
+  const team = teamsStore.currentTeamId ? teamsStore.currentTeamId.toString() : undefined;
+  const source = exploreStore.sourceId ? exploreStore.sourceId.toString() : undefined;
+  
+  // Explicitly define only the query params we want
+  const query: Record<string, string> = {};
+  if (team) query.team = team;
+  if (source) query.source = source;
+  
+  // Use router.push to completely replace the URL with only our desired params
+  router.push({
+    path: "/logs/saved", 
+    query
+  });
+};
+
+const explorerTo = computed(() => {
+  const team = teamsStore.currentTeamId ? teamsStore.currentTeamId.toString() : undefined;
+  return {
+    path: "/logs/explore",
+    query: {
+      ...(team ? { team } : {}),
+    },
+  };
+});
 
 // Get initial sidebar state from cookie or default to true
 const getSavedState = () => {
@@ -211,10 +244,20 @@ const navItems = [
                   ">
                     <SidebarMenuButton asChild :tooltip="item.title"
                       class="hover:bg-primary hover:text-primary-foreground py-2 data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground rounded-md transition-colors duration-150">
-                      <router-link :to="item.url" class="flex items-center" active-class="font-medium">
-                        <component :is="item.icon" class="size-5" :class="sidebarOpen ? 'mr-3 ml-1' : 'mx-auto'" />
-                        <span v-if="sidebarOpen">{{ item.title }}</span>
-                      </router-link>
+                      <!-- Collections uses custom navigation -->
+                      <template v-if="item.url === '/logs/saved'">
+                        <button @click="navigateToCollections" class="flex items-center w-full text-left">
+                          <component :is="item.icon" class="size-5" :class="sidebarOpen ? 'mr-3 ml-1' : 'mx-auto'" />
+                          <span v-if="sidebarOpen">{{ item.title }}</span>
+                        </button>
+                      </template>
+                      <!-- Regular router links for other items -->
+                      <template v-else>
+                        <router-link :to="item.url === '/logs/explore' ? explorerTo : item.url" class="flex items-center" active-class="font-medium">
+                          <component :is="item.icon" class="size-5" :class="sidebarOpen ? 'mr-3 ml-1' : 'mx-auto'" />
+                          <span v-if="sidebarOpen">{{ item.title }}</span>
+                        </router-link>
+                      </template>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 </template>
@@ -231,7 +274,7 @@ const navItems = [
                   <SidebarMenuItem>
                     <SidebarMenuButton asChild :tooltip="item.title"
                       class="hover:bg-primary hover:text-primary-foreground py-2 data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground rounded-md transition-colors duration-150">
-                      <router-link :to="item.url" class="flex items-center" active-class="font-medium">
+                      <router-link :to="item.url === '/logs/saved' ? collectionsTo : item.url" class="flex items-center" active-class="font-medium">
                         <component :is="item.icon" class="size-5" :class="sidebarOpen ? 'mr-3 ml-1' : 'mx-auto'" />
                         <span v-if="sidebarOpen">{{ item.title }}</span>
                       </router-link>
@@ -251,7 +294,7 @@ const navItems = [
                   <SidebarMenuItem>
                     <SidebarMenuButton asChild :tooltip="item.title"
                       class="hover:bg-primary hover:text-primary-foreground py-2 data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground rounded-md transition-colors duration-150">
-                      <router-link :to="item.url" class="flex items-center" active-class="font-medium">
+                      <router-link :to="item.url === '/logs/saved' ? collectionsTo : item.url" class="flex items-center" active-class="font-medium">
                         <component :is="item.icon" class="size-5" :class="sidebarOpen ? 'mr-3 ml-1' : 'mx-auto'" />
                         <span v-if="sidebarOpen">{{ item.title }}</span>
                       </router-link>

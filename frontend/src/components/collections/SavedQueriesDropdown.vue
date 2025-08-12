@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useToast } from '@/components/ui/toast';
+import { useToast } from '@/composables/useToast';
 import { TOAST_DURATION } from '@/lib/constants';
 import { type SavedTeamQuery } from '@/api/savedQueries';
 import { useSavedQueriesStore } from '@/stores/savedQueries';
@@ -23,6 +23,7 @@ import { Input } from '@/components/ui/input';
 import { useExploreStore } from '@/stores/explore';
 import { useAuthStore } from '@/stores/auth';
 import { useSavedQueries } from '@/composables/useSavedQueries';
+// Removed contextTransitionInProgress - no longer needed with clean architecture
 
 const props = defineProps<{
   selectedTeamId?: number;
@@ -85,10 +86,6 @@ watch(
   async ([teamId, sourceId]) => {
     if (teamId && sourceId) {
       await loadQueries(teamId, sourceId);
-    } else {
-      // Optionally clear store queries if team/source deselects, or let the store handle it
-      // savedQueriesStore.resetQueries() // Assuming a reset action exists if needed
-      // For now, the dropdown will just show 'select team/source' based on template logic
     }
   },
   { immediate: true }
@@ -166,13 +163,17 @@ function getQueryUrl(query: SavedTeamQuery): string {
     try {
       const queryContent = JSON.parse(query.query_content);
       if (queryContent.content) {
-        url += `&q=${encodeURIComponent(queryContent.content)}`;
+        if (queryType === 'logchefql') {
+          url += `&q=${encodeURIComponent(queryContent.content)}`;
+        } else {
+          url += `&sql=${encodeURIComponent(queryContent.content)}`;
+        }
       }
       if (queryContent.limit) {
         url += `&limit=${queryContent.limit}`;
       }
       if (queryContent.timeRange?.absolute) {
-        url += `&start_time=${queryContent.timeRange.absolute.start}&end_time=${queryContent.timeRange.absolute.end}`;
+        url += `&start=${queryContent.timeRange.absolute.start}&end=${queryContent.timeRange.absolute.end}`;
       }
     } catch (error) {
       console.error('Error parsing query content:', error);
@@ -211,13 +212,15 @@ const isUserAuthenticated = computed(() => authStore.isAuthenticated);
 const activeSavedQueryName = computed(() => exploreStore.activeSavedQueryName);
 
 const navigateToCollectionsView = () => {
-  const teamId = route.query.team;
-  const sourceId = route.query.source;
-  if (teamId && sourceId) {
-    router.push(`/teams/${teamId}/sources/${sourceId}/collections`);
-  } else {
-    console.warn('Cannot navigate to collections view: missing team or source ID in route query');
-  }
+  const query: Record<string, string | number> = {};
+  if (props.selectedTeamId) query.team = props.selectedTeamId;
+  if (props.selectedSourceId) query.source = props.selectedSourceId;
+
+  router.push({
+    path: '/logs/saved',
+    query
+  });
+  isOpen.value = false;
 };
 </script>
 

@@ -61,12 +61,14 @@ export interface QueryStats {
 }
 
 export interface QuerySuccessResponse {
-  logs: Record<string, any>[] | null;
+  logs?: Record<string, any>[] | null; // For backward compatibility
+  data?: Record<string, any>[] | null; // New structure
   stats: QueryStats;
   params?: QueryParams & {
     source_id: number;
   };
   columns: ColumnInfo[];
+  query_id?: string; // Add query_id for cancellation
 }
 
 export interface QueryErrorResponse {
@@ -129,7 +131,7 @@ export function prepareQueryParams(params: {
 }
 
 export const exploreApi = {
-  getLogs: (sourceId: number, params: QueryParams, teamId: number) => {
+  getLogs: (sourceId: number, params: QueryParams, teamId: number, signal?: AbortSignal) => {
     if (!teamId) {
       throw new Error("Team ID is required for querying logs");
     }
@@ -140,11 +142,11 @@ export const exploreApi = {
     return apiClient.post<QueryResponse>(
       `/teams/${teamId}/sources/${sourceId}/logs/query`,
       params,
-      { timeout }
+      { timeout, signal }
     );
   },
 
-  getHistogramData: (sourceId: number, params: QueryParams, teamId: number) => {
+  getHistogramData: (sourceId: number, params: QueryParams, teamId: number, signal?: AbortSignal) => {
     if (!teamId) {
       throw new Error("Team ID is required for getting histogram data");
     }
@@ -166,7 +168,7 @@ export const exploreApi = {
     return apiClient.post<HistogramResponse>(
       `/teams/${teamId}/sources/${sourceId}/logs/histogram`,
       histogramParams,
-      { timeout }
+      { timeout, signal }
     );
   },
 
@@ -190,6 +192,22 @@ export const exploreApi = {
     return apiClient.post<AIGenerateSQLResponse>(
       `/teams/${teamId}/sources/${sourceId}/generate-sql`,
       params
+    );
+  },
+
+  cancelQuery: (sourceId: number, queryId: string, teamId: number) => {
+    if (!teamId) {
+      throw new Error("Team ID is required for cancelling queries");
+    }
+    if (!sourceId) {
+      throw new Error("Source ID is required for cancelling queries");
+    }
+    if (!queryId) {
+      throw new Error("Query ID is required for cancelling queries");
+    }
+    return apiClient.post<{message: string; query_id: string}>(
+      `/teams/${teamId}/sources/${sourceId}/logs/query/${queryId}/cancel`,
+      {}
     );
   }
 };

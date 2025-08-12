@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
-import { computed, ref, reactive } from "vue";
+import { computed, ref, reactive, watch } from "vue";
 import { useTeamsStore } from "./teams";
+import { useContextStore } from "./context";
 import { sourcesApi } from "@/api/sources";
 import type {
   Source,
@@ -18,17 +19,28 @@ interface SourcesState {
   sourceQueries: Record<string, any>;
   sourceStats: Record<string, SourceStats>;
   currentSourceDetails: Source | null;
+  // Loading states
+  isLoadingTeamSources: boolean;
+  isLoadingSourceDetails: boolean;
+  // Error states
+  teamSourcesError: string | null;
+  sourceDetailsError: string | null;
 }
 
 export const useSourcesStore = defineStore("sources", () => {
   const teamsStore = useTeamsStore();
+  const contextStore = useContextStore();
 
   const state = useBaseStore<SourcesState>({
     sources: [],
     teamSources: [],
     sourceQueries: {},
     sourceStats: {},
-    currentSourceDetails: null
+    currentSourceDetails: null,
+    isLoadingTeamSources: false,
+    isLoadingSourceDetails: false,
+    teamSourcesError: null,
+    sourceDetailsError: null
   });
 
   // Computed properties
@@ -37,6 +49,12 @@ export const useSourcesStore = defineStore("sources", () => {
   const sourceQueries = computed(() => state.data.value.sourceQueries);
   const sourceStats = computed(() => state.data.value.sourceStats);
   const currentSourceDetails = computed(() => state.data.value.currentSourceDetails);
+  
+  // Loading state computed properties
+  const isLoadingTeamSources = computed(() => state.data.value.isLoadingTeamSources);
+  const isLoadingSourceDetails = computed(() => state.data.value.isLoadingSourceDetails);
+  const teamSourcesError = computed(() => state.data.value.teamSourcesError);
+  const sourceDetailsError = computed(() => state.data.value.sourceDetailsError);
 
   // Filtered sources
   const visibleSources = computed(() =>
@@ -94,6 +112,85 @@ export const useSourcesStore = defineStore("sources", () => {
     return null; // Or a default/placeholder
   });
 
+  // Reactive watchers for centralized team/source loading
+  // Track last processed IDs to prevent duplicate loading
+  let lastProcessedTeamId: number | null = null;
+  let lastProcessedSourceId: number | null = null;
+
+  // Watch team changes and auto-load sources
+  watch(
+    () => contextStore.teamId,
+    async (newTeamId, oldTeamId) => {
+      // Prevent duplicate processing
+      if (newTeamId === lastProcessedTeamId) {
+        return;
+      }
+      
+      console.log(`SourcesStore: Team changed from ${oldTeamId} to ${newTeamId}`);
+      lastProcessedTeamId = newTeamId;
+      
+      // Clear previous state
+      state.data.value.teamSourcesError = null;
+      state.data.value.teamSources = [];
+
+      if (!newTeamId) {
+        console.log('SourcesStore: No team selected, skipping source loading');
+        return;
+      }
+
+      try {
+        console.log(`SourcesStore: Loading sources for team ${newTeamId}`);
+        state.data.value.isLoadingTeamSources = true;
+        await loadTeamSources(newTeamId);
+        console.log(`SourcesStore: Successfully loaded ${teamSources.value.length} sources for team ${newTeamId}`);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Failed to load sources';
+        state.data.value.teamSourcesError = errorMessage;
+        console.error(`SourcesStore: Error loading sources for team ${newTeamId}:`, error);
+      } finally {
+        state.data.value.isLoadingTeamSources = false;
+      }
+    },
+    { immediate: true }
+  );
+
+  // Watch source changes and auto-load details
+  watch(
+    () => contextStore.sourceId,
+    async (newSourceId, oldSourceId) => {
+      // Prevent duplicate processing
+      if (newSourceId === lastProcessedSourceId) {
+        return;
+      }
+      
+      console.log(`SourcesStore: Source changed from ${oldSourceId} to ${newSourceId}`);
+      lastProcessedSourceId = newSourceId;
+      
+      // Clear previous state
+      state.data.value.sourceDetailsError = null;
+      state.data.value.currentSourceDetails = null;
+
+      if (!newSourceId) {
+        console.log('SourcesStore: No source selected, skipping details loading');
+        return;
+      }
+
+      try {
+        console.log(`SourcesStore: Loading details for source ${newSourceId}`);
+        state.data.value.isLoadingSourceDetails = true;
+        await loadSourceDetails(newSourceId);
+        console.log(`SourcesStore: Successfully loaded details for source ${newSourceId}`);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Failed to load source details';
+        state.data.value.sourceDetailsError = errorMessage;
+        console.error(`SourcesStore: Error loading details for source ${newSourceId}:`, error);
+      } finally {
+        state.data.value.isLoadingSourceDetails = false;
+      }
+    },
+    { immediate: true }
+  );
+
   async function loadSources() {
     // Use admin endpoint for listing sources
     return await loadAllSourcesForAdmin();
@@ -122,13 +219,19 @@ export const useSourcesStore = defineStore("sources", () => {
     return isHydrated.value;
   }
 
-  async function loadTeamSources(teamId: number) {
+  async function loadTeamSources(teamId: number, version?: number) {
     return await state.withLoading(`loadTeamSources-${teamId}`, async () => {
       return await state.callApi({
         apiCall: () => sourcesApi.listTeamSources(teamId),
         operationKey: `loadTeamSources-${teamId}`,
-        onSuccess: (data) => {
+        onSuccess: async (data) => {
           state.data.value.teamSources = data ?? [];
+          console.log(`loadTeamSources: Loaded ${state.data.value.teamSources.length} sources for team ${teamId}`);
+          if (state.data.value.teamSources.length === 0) {
+            console.log(`loadTeamSources: Team ${teamId} genuinely has no sources configured`);
+          } else {
+            console.log(`loadTeamSources: Team ${teamId} sources:`, state.data.value.teamSources.map(s => `${s.id}:${s.name}`));
+          }
         },
         defaultData: [],
         showToast: false,
@@ -326,7 +429,7 @@ export const useSourcesStore = defineStore("sources", () => {
     });
   }
 
-  async function loadSourceDetails(sourceId: number) {
+  async function loadSourceDetails(sourceId: number, version?: number) {
     // Use a unique loading key
     const loadingKey = `loadSourceDetails-${sourceId}`;
 
@@ -359,10 +462,12 @@ export const useSourcesStore = defineStore("sources", () => {
       return await state.callApi<Source>({
         // Use getTeamSource API call as it seems to be the one implemented
         apiCall: () => sourcesApi.getTeamSource(currentTeamId, sourceId),
-        onSuccess: (data: any) => {
+        onSuccess: async (data: any) => {
           if (!data) return;
 
           state.data.value.currentSourceDetails = data as Source;
+          console.log(`Loaded source details for source ${sourceId}`);
+          
           // Update the source in teamSources as well (like the existing getSource does)
           const index = state.data.value.teamSources.findIndex((s) => s.id === sourceId);
           if (index >= 0) {
@@ -427,6 +532,10 @@ export const useSourcesStore = defineStore("sources", () => {
 
   function clearCurrentSourceDetails() {
     state.data.value.currentSourceDetails = null;
+  }
+
+  function clearTeamSources() {
+    state.data.value.teamSources = [];
   }
 
   // Use the centralized error handler from base store
@@ -526,14 +635,20 @@ export const useSourcesStore = defineStore("sources", () => {
     hasValidCurrentSource,
     visibleSources,
     isHydrated,
+    
+    // Centralized loading states
+    isLoadingTeamSources,
+    isLoadingSourceDetails,
+    teamSourcesError,
+    sourceDetailsError,
 
     // Loading state helpers
     isLoadingOperation: state.isLoadingOperation,
     isLoadingSource: (sourceId: number) =>
       state.isLoadingOperation(`getSource-${sourceId}`),
-    isLoadingTeamSources: (teamId: number) =>
+    isLoadingTeamSourcesForTeam: (teamId: number) =>
       state.isLoadingOperation(`loadTeamSources-${teamId}`),
-    isLoadingSourceDetails: (id: number) => {
+    isLoadingSourceDetailsForId: (id: number) => {
       if (!id) return false;
       return state.isLoadingOperation(`loadSourceDetails-${id}`);
     },
@@ -560,6 +675,7 @@ export const useSourcesStore = defineStore("sources", () => {
     invalidateSourceCache,
     loadSourceDetails,
     clearCurrentSourceDetails,
+    clearTeamSources,
     hydrate,
     loadAllSourcesForAdmin,
     getSourceSchema,

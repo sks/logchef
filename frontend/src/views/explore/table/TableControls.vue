@@ -1,0 +1,188 @@
+<script setup lang="ts">
+import { ref, watch, computed } from 'vue'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Download, Timer, Rows4, RefreshCw, Search } from 'lucide-vue-next'
+import DataTablePagination from './data-table-pagination.vue'
+import DataTableColumnSelector from './data-table-column-selector.vue'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
+import { exportTableData } from './export'
+import type { Table } from '@tanstack/vue-table'
+import type { QueryStats } from '@/api/explore'
+
+interface Props {
+  table: Table<any>
+  stats?: QueryStats
+  isLoading?: boolean
+  showColumnSelector?: boolean
+  showExport?: boolean
+  showPagination?: boolean
+  showSearch?: boolean
+  showTimezoneToggle?: boolean
+  showStats?: boolean
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  stats: () => ({}),
+  isLoading: false,
+  showColumnSelector: true,
+  showExport: true,
+  showPagination: true,
+  showSearch: true,
+  showTimezoneToggle: true,
+  showStats: true
+})
+
+const emit = defineEmits<{
+  'update:timezone': [value: 'local' | 'utc']
+  'update:globalFilter': [value: string]
+}>()
+
+// Local state
+const displayTimezone = ref<'local' | 'utc'>(
+  localStorage.getItem('logchef_timezone') === 'utc' ? 'utc' : 'local'
+)
+
+const globalFilter = computed({
+  get: () => props.table.getState().globalFilter ?? '',
+  set: (value) => {
+    props.table.setGlobalFilter(value)
+    emit('update:globalFilter', value)
+  }
+})
+
+// Column order state
+const columnOrder = computed(() => props.table.getState().columnOrder)
+
+// Save timezone preference
+watch(displayTimezone, (newValue) => {
+  localStorage.setItem('logchef_timezone', newValue)
+  emit('update:timezone', newValue)
+})
+
+// Helper function to format execution time
+function formatExecutionTime(ms: number): string {
+  if (ms >= 1000) {
+    return `${(ms / 1000).toFixed(2)}s`
+  }
+  return `${Math.round(ms)}ms`
+}
+
+// Check if table has rows
+const hasRows = computed(() => props.table && props.table.getRowModel().rows?.length > 0)
+</script>
+
+<template>
+  <div class="flex items-center justify-between p-2 border-b flex-shrink-0">
+    <!-- Left side - Query stats & Loading Indicator -->
+    <div class="flex items-center gap-3 text-sm text-muted-foreground">
+      <!-- Loading Spinner -->
+      <RefreshCw v-if="isLoading" class="h-4 w-4 text-primary animate-spin" />
+      
+      <!-- Query Stats -->
+      <template v-if="showStats && !isLoading && stats">
+        <span v-if="stats.execution_time_ms !== undefined" class="inline-flex items-center">
+          <Timer class="h-3.5 w-3.5 mr-1.5 text-muted-foreground/80" />
+          Query time:
+          <span class="ml-1 font-medium text-foreground/90">{{ formatExecutionTime(stats.execution_time_ms) }}</span>
+        </span>
+        <span v-if="stats.rows_read !== undefined" class="inline-flex items-center">
+          <Rows4 class="h-3.5 w-3.5 mr-1.5 text-muted-foreground/80" />
+          Rows:
+          <span class="ml-1 font-medium text-foreground/90">{{ stats.rows_read.toLocaleString() }}</span>
+        </span>
+      </template>
+      
+      <span v-if="isLoading" class="text-primary animate-pulse">Loading...</span>
+    </div>
+
+    <!-- Right side controls -->
+    <div class="flex items-center gap-3">
+      <!-- Export CSV Button with Dropdown -->
+      <DropdownMenu v-if="showExport && hasRows">
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="sm" class="h-8 flex items-center gap-1" title="Export table data">
+            <Download class="h-4 w-4 mr-1" />
+            Export
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" class="w-48">
+          <DropdownMenuItem @click="exportTableData(table, {
+            fileName: `logchef-export-all-${new Date().toISOString().slice(0, 10)}`,
+            exportType: 'all',
+            includeHiddenColumns: true
+          })">
+            Export All Data
+          </DropdownMenuItem>
+          <DropdownMenuItem @click="exportTableData(table, {
+            fileName: `logchef-export-${new Date().toISOString().slice(0, 10)}`,
+            exportType: 'visible'
+          })">
+            Export Visible Rows
+          </DropdownMenuItem>
+          <DropdownMenuItem @click="exportTableData(table, {
+            fileName: `logchef-export-filtered-${new Date().toISOString().slice(0, 10)}`,
+            exportType: 'filtered'
+          })">
+            Export All Filtered Rows
+          </DropdownMenuItem>
+          <DropdownMenuItem @click="exportTableData(table, {
+            fileName: `logchef-export-page-${new Date().toISOString().slice(0, 10)}`,
+            exportType: 'page'
+          })">
+            Export Current Page
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <!-- Timezone toggle -->
+      <div v-if="showTimezoneToggle" class="flex items-center space-x-1 mr-1">
+        <Button 
+          variant="ghost" 
+          size="sm" 
+          class="h-8 px-2 text-xs"
+          :class="{ 'bg-muted': displayTimezone === 'local' }" 
+          @click="displayTimezone = 'local'"
+        >
+          Local Time
+        </Button>
+        <Button 
+          variant="ghost" 
+          size="sm" 
+          class="h-8 px-2 text-xs"
+          :class="{ 'bg-muted': displayTimezone === 'utc' }" 
+          @click="displayTimezone = 'utc'"
+        >
+          UTC
+        </Button>
+      </div>
+
+      <!-- Pagination -->
+      <DataTablePagination v-if="showPagination && hasRows" :table="table" />
+
+      <!-- Column selector -->
+      <DataTableColumnSelector 
+        v-if="showColumnSelector && table" 
+        :table="table" 
+        :column-order="columnOrder"
+        @update:column-order="table.setColumnOrder($event)" 
+      />
+
+      <!-- Search input -->
+      <div v-if="showSearch" class="relative w-64">
+        <Search class="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+        <Input 
+          placeholder="Search across all columns..." 
+          aria-label="Search in all columns"
+          v-model="globalFilter" 
+          class="pl-8 h-8 text-sm" 
+        />
+      </div>
+    </div>
+  </div>
+</template>

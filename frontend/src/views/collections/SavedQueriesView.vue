@@ -18,7 +18,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
-import { useToast } from "@/components/ui/toast";
+import { useToast } from "@/composables/useToast";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -206,6 +206,15 @@ onMounted(async () => {
       const src = sourcesStore.teamSources.find(s => s.id === parseInt(selectedSourceId.value));
       if (src) currentSelectedSource.value = src;
       else currentSelectedSource.value = undefined;
+
+      // Ensure URL always shows team and source on initial load
+      router.replace({
+        path: "/logs/saved",
+        query: {
+          team: teamsStore.currentTeamId?.toString() || "",
+          source: selectedSourceId.value,
+        },
+      });
 
       // Don't explicitly call loadSourceQueries here,
       // the watcher on selectedSourceId will handle it

@@ -19,12 +19,9 @@ import {
 } from '@tanstack/vue-table'
 import { ref, computed, onMounted, watch } from 'vue'
 import { Button } from '@/components/ui/button'
-import { Search, GripVertical, Download, Copy, Timer, Rows4, Equal, EqualNot, RefreshCw } from 'lucide-vue-next' // Added RefreshCw
+import { GripVertical, Copy, Equal, EqualNot, TerminalSquare } from 'lucide-vue-next'
 import { valueUpdater, getSeverityClasses } from '@/lib/utils'
-import { Input } from '@/components/ui/input'
-import DataTableColumnSelector from './data-table-column-selector.vue'
-import DataTablePagination from './data-table-pagination.vue'
-import { useToast } from '@/components/ui/toast'
+import { useToast } from '@/composables/useToast'
 import { TOAST_DURATION } from '@/lib/constants'
 import type { QueryStats, ColumnInfo } from '@/api/explore'
 import JsonViewer from '@/components/json-viewer/JsonViewer.vue'
@@ -34,13 +31,7 @@ import { useExploreStore } from '@/stores/explore'
 import type { Source } from '@/api/sources'
 import { useSourcesStore } from '@/stores/sources'
 import { useStorage, type UseStorageOptions, type RemovableRef } from '@vueuse/core'
-import { exportTableData } from './export'
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger
-} from '@/components/ui/dropdown-menu'
+import TableControls from './TableControls.vue'
 
 interface Props {
     columns: ColumnDef<Record<string, any>>[]
@@ -48,6 +39,7 @@ interface Props {
     stats: QueryStats
     sourceId: string
     teamId: number | null
+    displayMode?: 'table' | 'compact'
     timestampField?: string
     severityField?: string
     timezone?: 'local' | 'utc'
@@ -576,17 +568,11 @@ const onDragEnd = () => { // No event parameter
     document.body.classList.remove('dragging-column');
 }
 
-// Helper function to format execution time
-function formatExecutionTime(ms: number): string {
-    if (ms >= 1000) {
-        return `${(ms / 1000).toFixed(2)}s`;
-    }
-    return `${Math.round(ms)}ms`;
-}
 
 // Define emits
 const emit = defineEmits<{
     (e: 'drill-down', value: { column: string, value: any, operator: string }): void
+    (e: 'update:displayMode', value: 'table' | 'compact'): void
 }>();
 
 // Function to handle drill-down action with different operators
@@ -603,96 +589,15 @@ const handleDrillDown = (columnName: string, value: any, operator: string = '=')
         :class="{ 'cursor-col-resize select-none': isResizing }">
         <!-- Subtle resize indicator - just a cursor change, no overlay -->
 
-        <!-- Results Header with Controls and Pagination -->
-        <div class="flex items-center justify-between p-2 border-b flex-shrink-0">
-            <!-- Left side - Query stats & Loading Indicator -->
-            <div class="flex items-center gap-3 text-sm text-muted-foreground">
-                <!-- Loading Spinner -->
-                <RefreshCw v-if="props.isLoading" class="h-4 w-4 text-primary animate-spin" />
-                <!-- Query Stats -->
-                <span v-if="!props.isLoading && stats && stats.execution_time_ms !== undefined"
-                    class="inline-flex items-center">
-                    <Timer class="h-3.5 w-3.5 mr-1.5 text-muted-foreground/80" />
-                    Query time:
-                    <span class="ml-1 font-medium text-foreground/90">{{ formatExecutionTime(stats.execution_time_ms)
-                        }}</span>
-                </span>
-                <span v-if="!props.isLoading && stats && stats.rows_read !== undefined"
-                    class="inline-flex items-center">
-                    <Rows4 class="h-3.5 w-3.5 mr-1.5 text-muted-foreground/80" />
-                    Rows:
-                    <span class="ml-1 font-medium text-foreground/90">{{ stats.rows_read.toLocaleString() }}</span>
-                </span>
-                <span v-if="props.isLoading" class="text-primary animate-pulse">Loading...</span>
-            </div>
-
-            <!-- Right side controls with pagination moved to top -->
-            <div class="flex items-center gap-3">
-                <!-- Export CSV Button with Dropdown -->
-                <DropdownMenu v-if="table && table.getRowModel().rows?.length > 0">
-                    <DropdownMenuTrigger asChild>
-                        <Button variant="outline" size="sm" class="h-8 flex items-center gap-1"
-                            title="Export table data">
-                            <Download class="h-4 w-4 mr-1" />
-                            Export
-                        </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" class="w-48">
-                        <DropdownMenuItem @click="exportTableData(table, {
-                            fileName: `logchef-export-all-${new Date().toISOString().slice(0, 10)}`,
-                            exportType: 'all',
-                            includeHiddenColumns: true
-                        })">
-                            Export All Data
-                        </DropdownMenuItem>
-                        <DropdownMenuItem @click="exportTableData(table, {
-                            fileName: `logchef-export-${new Date().toISOString().slice(0, 10)}`,
-                            exportType: 'visible'
-                        })">
-                            Export Visible Rows
-                        </DropdownMenuItem>
-                        <DropdownMenuItem @click="exportTableData(table, {
-                            fileName: `logchef-export-filtered-${new Date().toISOString().slice(0, 10)}`,
-                            exportType: 'filtered'
-                        })">
-                            Export All Filtered Rows
-                        </DropdownMenuItem>
-                        <DropdownMenuItem @click="exportTableData(table, {
-                            fileName: `logchef-export-page-${new Date().toISOString().slice(0, 10)}`,
-                            exportType: 'page'
-                        })">
-                            Export Current Page
-                        </DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
-
-                <!-- Timezone toggle -->
-                <div class="flex items-center space-x-1 mr-1">
-                    <Button variant="ghost" size="sm" class="h-8 px-2 text-xs"
-                        :class="{ 'bg-muted': displayTimezone === 'local' }" @click="displayTimezone = 'local'">
-                        Local Time
-                    </Button>
-                    <Button variant="ghost" size="sm" class="h-8 px-2 text-xs"
-                        :class="{ 'bg-muted': displayTimezone === 'utc' }" @click="displayTimezone = 'utc'">
-                        UTC
-                    </Button>
-                </div>
-
-                <!-- Pagination moved to top -->
-                <DataTablePagination v-if="table && table.getRowModel().rows?.length > 0" :table="table" />
-
-                <!-- Column selector -->
-                <DataTableColumnSelector v-if="table" :table="table" :column-order="columnOrder"
-                    @update:column-order="table.setColumnOrder($event)" />
-
-                <!-- Search input -->
-                <div class="relative w-64">
-                    <Search class="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                    <Input placeholder="Search across all columns..." aria-label="Search in all columns"
-                        v-model="globalFilter" class="pl-8 h-8 text-sm" />
-                </div>
-            </div>
-        </div>
+        <!-- Shared Table Controls -->
+        <TableControls 
+            v-if="table"
+            :table="table"
+            :stats="stats"
+            :is-loading="props.isLoading"
+            @update:timezone="displayTimezone = $event"
+            @update:globalFilter="globalFilter = $event"
+        />
 
         <!-- Table Section with full-height scrolling -->
         <div class="flex-1 relative overflow-hidden" ref="tableContainerRef"
