@@ -33,12 +33,19 @@ const statsError = computed(() => {
 
 // Computed properties for stats data
 const stats = computed(() => {
-  if (!selectedSourceId.value) return { tableStats: null, columnStats: null }
+  if (!selectedSourceId.value) return {
+    tableStats: null,
+    columnStats: null,
+    tableInfo: null,
+    ttl: null
+  }
 
   const sourceStats = sourcesStore.getSourceStatsById(parseInt(selectedSourceId.value))
   return {
     tableStats: sourceStats?.table_stats || null,
-    columnStats: sourceStats?.column_stats || null
+    columnStats: sourceStats?.column_stats || null,
+    tableInfo: sourceStats?.table_info || null,
+    ttl: sourceStats?.ttl || null
   }
 })
 
@@ -113,12 +120,45 @@ const fetchSourceStats = async () => {
           </div>
         </div>
 
+        <!-- Table Info Card -->
+        <Card v-if="stats.tableInfo" class="mb-6">
+          <CardHeader>
+            <CardTitle>Table Schema Information</CardTitle>
+            <CardDescription>
+              {{ stats.tableInfo.database }}.{{ stats.tableInfo.name }}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+              <div class="bg-muted p-3 rounded-md">
+                <div class="text-sm text-muted-foreground">Engine</div>
+                <div class="text-lg font-semibold">{{ stats.tableInfo.engine }}</div>
+                <div v-if="stats.tableInfo.engine_params && stats.tableInfo.engine_params.length > 0" class="text-xs text-muted-foreground mt-1">
+                  {{ stats.tableInfo.engine_params.join(', ') }}
+                </div>
+              </div>
+              <div class="bg-muted p-3 rounded-md">
+                <div class="text-sm text-muted-foreground">Columns</div>
+                <div class="text-lg font-semibold">{{ stats.tableInfo.columns?.length || 0 }}</div>
+              </div>
+              <div v-if="stats.tableInfo.sort_keys && stats.tableInfo.sort_keys.length > 0" class="bg-muted p-3 rounded-md">
+                <div class="text-sm text-muted-foreground">Sort Keys</div>
+                <div class="text-sm font-medium">{{ stats.tableInfo.sort_keys.join(', ') }}</div>
+              </div>
+              <div v-if="stats.ttl" class="bg-muted p-3 rounded-md">
+                <div class="text-sm text-muted-foreground">TTL</div>
+                <div class="text-sm font-medium">{{ stats.ttl }}</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         <!-- Table Stats Card -->
         <Card v-if="stats.tableStats" class="mb-6">
           <CardHeader>
-            <CardTitle>Table Overview</CardTitle>
+            <CardTitle>Table Statistics</CardTitle>
             <CardDescription>
-              {{ stats.tableStats.database }}.{{ stats.tableStats.table }}
+              Storage and performance metrics
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -173,6 +213,73 @@ const fetchSourceStats = async () => {
                   <TableCell>{{ column.uncompressed }}</TableCell>
                   <TableCell>{{ column.compr_ratio.toFixed(2) }}x</TableCell>
                   <TableCell>{{ column.avg_row_size.toFixed(2) }} bytes</TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+
+        <!-- Schema Details Table -->
+        <Card v-if="stats.tableInfo && stats.tableInfo.ext_columns && stats.tableInfo.ext_columns.length > 0" class="mb-6">
+          <CardHeader>
+            <CardTitle>Schema Details</CardTitle>
+            <CardDescription>
+              Detailed column schema information
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Column</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Nullable</TableHead>
+                  <TableHead>Primary Key</TableHead>
+                  <TableHead>Default</TableHead>
+                  <TableHead>Comment</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                <TableRow v-for="column in stats.tableInfo.ext_columns" :key="column.name">
+                  <TableCell class="font-medium">{{ column.name }}</TableCell>
+                  <TableCell>{{ column.type }}</TableCell>
+                  <TableCell>
+                    <span :class="column.is_nullable ? 'text-green-600' : 'text-red-600'">
+                      {{ column.is_nullable ? 'Yes' : 'No' }}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <span v-if="column.is_primary_key" class="text-blue-600 font-semibold">Yes</span>
+                    <span v-else class="text-muted-foreground">No</span>
+                  </TableCell>
+                  <TableCell class="text-sm">{{ column.default_expression || '–' }}</TableCell>
+                  <TableCell class="text-sm">{{ column.comment || '–' }}</TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+
+        <!-- Basic Schema Table (fallback if extended columns not available) -->
+        <Card v-else-if="stats.tableInfo && stats.tableInfo.columns && stats.tableInfo.columns.length > 0" class="mb-6">
+          <CardHeader>
+            <CardTitle>Schema Overview</CardTitle>
+            <CardDescription>
+              Basic column information
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Column</TableHead>
+                  <TableHead>Type</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                <TableRow v-for="column in stats.tableInfo.columns" :key="column.name">
+                  <TableCell class="font-medium">{{ column.name }}</TableCell>
+                  <TableCell>{{ column.type }}</TableCell>
                 </TableRow>
               </TableBody>
             </Table>

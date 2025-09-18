@@ -514,6 +514,7 @@ func (c *Client) getBaseTableInfo(ctx context.Context, database, table string) (
 	}
 
 	// Extended column info is optional; log errors but don't fail.
+	// Try to get extended columns, but handle version compatibility gracefully.
 	extColumns, err := c.getExtendedColumns(ctx, database, table)
 	if err != nil {
 		c.logger.Warn("failed to get extended column info",
@@ -521,6 +522,8 @@ func (c *Client) getBaseTableInfo(ctx context.Context, database, table string) (
 			"database", database,
 			"table", table,
 		)
+		// Set to nil to indicate extended columns are not available
+		extColumns = nil
 	}
 
 	return &TableInfo{
@@ -536,14 +539,16 @@ func (c *Client) getBaseTableInfo(ctx context.Context, database, table string) (
 }
 
 // getExtendedColumns retrieves detailed column metadata from system.columns.
+// This function handles version compatibility by checking available columns.
 func (c *Client) getExtendedColumns(ctx context.Context, database, table string) ([]ExtendedColumnInfo, error) {
+	// Use a simpler query that works across more ClickHouse versions
+	// The is_nullable column is not available in all versions
 	query := `
 		SELECT
 			name, type,
 			is_in_primary_key,
 			default_expression,
-			comment,
-			is_nullable
+			comment
 		FROM system.columns
 		WHERE database = ? AND table = ?
 		ORDER BY position
@@ -570,11 +575,12 @@ func (c *Client) getExtendedColumns(ctx context.Context, database, table string)
 			&col.IsPrimaryKey,
 			&col.DefaultExpression,
 			&col.Comment,
-			&col.IsNullable,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan extended column: %w", err)
 		}
+		// Determine nullability from the type string since is_nullable column may not be available
+		col.IsNullable = strings.HasPrefix(col.Type, "Nullable(")
 		columns = append(columns, col)
 	}
 	return columns, rows.Err() // Return any error encountered during iteration.
@@ -613,8 +619,13 @@ func (c *Client) getTableEngine(ctx context.Context, database, table string) (st
 		return "", nil, "", fmt.Errorf("error iterating table engine results: %w", err)
 	}
 
-	// Parse engine parameters from the engine_full string.
-	params := parseEngineParams(engineFull)
+	// Skip parsing engine_full since it contains the entire engine clause (PARTITION BY, ORDER BY, TTL)
+	// rather than just constructor parameters. The actual schema details are available in other fields.
+	// Only parse constructor params if we specifically need them for Distributed engines.
+	var params []string
+	if strings.HasPrefix(engine, "Distributed") {
+		params = parseEngineParams(engineFull)
+	}
 	return engine, params, createQuery, nil
 }
 
@@ -735,14 +746,33 @@ func (c *Client) handleDistributedTable(ctx context.Context, base *TableInfo) (*
 
 // parseEngineParams attempts to parse the parameters from a full engine string
 // (e.g., "MergeTree() PARTITION BY toYYYYMM(date) ORDER BY (date, id)").
-// This is a best-effort parser and might not handle all edge cases perfectly.
+// This function extracts only the engine constructor parameters, not the full engine clause.
 func parseEngineParams(engineFull string) []string {
-	// Extract content between the first '(' and the last ')'.
+	// Find the engine constructor parentheses (the first pair)
 	start := strings.Index(engineFull, "(")
-	end := strings.LastIndex(engineFull, ")")
-	if start == -1 || end == -1 || start >= end {
-		return nil // No parameters found or malformed.
+	if start == -1 {
+		return nil // No parameters found
 	}
+
+	// Find the matching closing parenthesis by counting nested levels
+	parenCount := 0
+	end := -1
+	for i := start; i < len(engineFull); i++ {
+		if engineFull[i] == '(' {
+			parenCount++
+		} else if engineFull[i] == ')' {
+			parenCount--
+			if parenCount == 0 {
+				end = i
+				break
+			}
+		}
+	}
+
+	if end == -1 || start >= end {
+		return nil // No matching closing parenthesis found
+	}
+
 	paramsStr := engineFull[start+1 : end]
 
 	params := make([]string, 0)

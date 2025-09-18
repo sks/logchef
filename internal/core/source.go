@@ -12,8 +12,6 @@ import (
 	"github.com/mr-karan/logchef/internal/clickhouse"
 	"github.com/mr-karan/logchef/internal/sqlite"
 	"github.com/mr-karan/logchef/pkg/models"
-	// Assuming validation logic will be moved/available here or called directly
-	// "github.com/mr-karan/logchef/internal/source" // Import for validation types if needed temporarily
 )
 
 // ErrSourceNotFound is returned when a source is not found
@@ -668,11 +666,84 @@ func ValidateConnectionWithColumns(ctx context.Context, chDB *clickhouse.Manager
 	return &models.ConnectionValidationResult{Message: "Connection and column types validated successfully"}, nil
 }
 
+// extractTTLFromCreateQuery extracts TTL information from a CREATE TABLE statement
+func extractTTLFromCreateQuery(createQuery string) string {
+	if createQuery == "" {
+		return ""
+	}
+
+	// Look for TTL keyword (case insensitive)
+	ttlIndex := strings.Index(strings.ToUpper(createQuery), " TTL ")
+	if ttlIndex == -1 {
+		return ""
+	}
+
+	// Extract everything after "TTL "
+	ttlPart := createQuery[ttlIndex+5:] // +5 to skip " TTL "
+	return parseTTLExpression(ttlPart)
+}
+
+// parseTTLExpression parses the TTL expression from a TTL clause string
+// Handles ClickHouse TTL syntax: expression [DELETE|TO DISK|TO VOLUME] [SETTINGS]
+func parseTTLExpression(ttlPart string) string {
+	if ttlPart == "" {
+		return ""
+	}
+
+	// Find the end of the TTL expression by looking for common terminators
+	// while properly handling nested parentheses
+	parenCount := 0
+	endIndex := len(ttlPart)
+
+	for i, char := range ttlPart {
+		switch char {
+		case '(':
+			parenCount++
+		case ')':
+			parenCount--
+			// If we're back to 0 parentheses, check if this might be the end
+			if parenCount == 0 {
+				remaining := strings.TrimSpace(ttlPart[i+1:])
+				upperRemaining := strings.ToUpper(remaining)
+				if strings.HasPrefix(upperRemaining, "SETTINGS") ||
+					strings.HasPrefix(upperRemaining, "DELETE") ||
+					strings.HasPrefix(upperRemaining, "TO DISK") ||
+					strings.HasPrefix(upperRemaining, "TO VOLUME") ||
+					remaining == "" {
+					endIndex = i
+					break
+				}
+			}
+		case ' ':
+			if parenCount == 0 {
+				// Look for keywords that would end the TTL expression
+				remaining := strings.TrimSpace(ttlPart[i:])
+				upperRemaining := strings.ToUpper(remaining)
+				if strings.HasPrefix(upperRemaining, "SETTINGS") ||
+					strings.HasPrefix(upperRemaining, "DELETE") ||
+					strings.HasPrefix(upperRemaining, "TO DISK") ||
+					strings.HasPrefix(upperRemaining, "TO VOLUME") {
+					endIndex = i
+					break
+				}
+			}
+		}
+	}
+
+	// Extract and clean the TTL expression
+	ttlExpr := strings.TrimSpace(ttlPart[:endIndex])
+	ttlExpr = strings.TrimRight(ttlExpr, ",")
+
+	return ttlExpr
+}
+
 // SourceStats represents the combined statistics for a ClickHouse table
 // Use types directly from the clickhouse package
 type SourceStats struct {
-	TableStats  *clickhouse.TableStat        `json:"table_stats"`  // Use pointer to allow nil if stats fail completely
-	ColumnStats []clickhouse.TableColumnStat `json:"column_stats"` // Slice is sufficient, empty if stats fail
+	TableStats  *clickhouse.TableStat        `json:"table_stats"`   // Use pointer to allow nil if stats fail completely
+	ColumnStats []clickhouse.TableColumnStat `json:"column_stats"`  // Slice is sufficient, empty if stats fail
+	TableInfo   *clickhouse.TableInfo        `json:"table_info"`    // Schema, engine, and metadata information
+	TTL         string                       `json:"ttl,omitempty"` // TTL information extracted from CREATE TABLE
 }
 
 // GetSourceStats retrieves statistics for a specific source (ClickHouse table)
@@ -698,12 +769,64 @@ func GetSourceStats(ctx context.Context, chDB *clickhouse.Manager, log *slog.Log
 		return nil, fmt.Errorf("failed to get client for source %d: %w", source.ID, err)
 	}
 
+	// Get table info (schema, engine info, CREATE TABLE statement)
+	// This will automatically handle Distributed table engine detection via getBaseTableInfo
+	tableInfo, err := client.GetTableInfo(ctx, source.Connection.Database, source.Connection.TableName)
+	if err != nil {
+		log.Warn("failed to get table info, proceeding without it",
+			"error", err,
+			"source_id", source.ID,
+		)
+		// Set tableInfo to nil to indicate failure, but don't return an error
+		tableInfo = nil
+	}
+
+	// Extract TTL information from CREATE TABLE statement if available
+	var ttlExpr string
+	if tableInfo != nil && tableInfo.CreateQuery != "" {
+		// For Distributed tables, TTL is always on the local table, not the distributed table
+		if tableInfo.Engine == "Distributed" && len(tableInfo.EngineParams) >= 3 {
+			localDB := tableInfo.EngineParams[1]
+			localTable := tableInfo.EngineParams[2]
+
+			// Get the local table info to check for TTL
+			localTableInfo, err := client.GetTableInfo(ctx, localDB, localTable)
+			if err == nil && localTableInfo != nil && localTableInfo.CreateQuery != "" {
+				ttlExpr = extractTTLFromCreateQuery(localTableInfo.CreateQuery)
+			}
+		} else {
+			// For non-Distributed tables, extract TTL directly
+			ttlExpr = extractTTLFromCreateQuery(tableInfo.CreateQuery)
+		}
+	}
+
+	// Determine which table to query for statistics
+	// For Distributed tables, try to get stats from the underlying local table
+	statsDatabase := source.Connection.Database
+	statsTable := source.Connection.TableName
+
+	if tableInfo != nil && tableInfo.Engine == "Distributed" && len(tableInfo.EngineParams) >= 3 {
+		// For Distributed tables, try to get stats from the local table
+		localDB := tableInfo.EngineParams[1]
+		localTable := tableInfo.EngineParams[2]
+
+		log.Debug("using local table for Distributed engine stats",
+			"source_id", source.ID,
+			"distributed_table", fmt.Sprintf("%s.%s", statsDatabase, statsTable),
+			"local_table", fmt.Sprintf("%s.%s", localDB, localTable),
+		)
+
+		statsDatabase = localDB
+		statsTable = localTable
+	}
+
 	// Get table stats
-	tableStats, err := client.TableStats(ctx, source.Connection.Database, source.Connection.TableName)
+	tableStats, err := client.TableStats(ctx, statsDatabase, statsTable)
 	if err != nil {
 		log.Warn("failed to get table stats, proceeding without them",
 			"error", err,
 			"source_id", source.ID,
+			"stats_table", fmt.Sprintf("%s.%s", statsDatabase, statsTable),
 		)
 		// Set tableStats to nil to indicate failure, but don't return an error yet
 		// The UI can handle displaying a message if tableStats is nil.
@@ -711,11 +834,12 @@ func GetSourceStats(ctx context.Context, chDB *clickhouse.Manager, log *slog.Log
 	}
 
 	// Get column stats
-	columnStats, err := client.ColumnStats(ctx, source.Connection.Database, source.Connection.TableName)
+	columnStats, err := client.ColumnStats(ctx, statsDatabase, statsTable)
 	if err != nil {
 		log.Warn("failed to get column stats, attempting to build defaults from schema",
 			"error", err,
 			"source_id", source.ID,
+			"stats_table", fmt.Sprintf("%s.%s", statsDatabase, statsTable),
 		)
 		// Explicitly set columnStats to nil or an empty slice on error
 		columnStats = nil // Indicates an error occurred fetching stats
@@ -757,23 +881,34 @@ func GetSourceStats(ctx context.Context, chDB *clickhouse.Manager, log *slog.Log
 		columnStats = []clickhouse.TableColumnStat{}
 	}
 
-	// Construct the result, allowing tableStats to be nil if it failed
+	// Construct the result, allowing tableStats and tableInfo to be nil if they failed
 	stats := &SourceStats{
 		TableStats:  tableStats,
 		ColumnStats: columnStats,
+		TableInfo:   tableInfo,
+		TTL:         ttlExpr,
+	}
+
+	// Log detailed information about what was retrieved
+	logFields := []interface{}{
+		"source_id", source.ID,
+		"column_stats_count", len(columnStats),
+		"has_table_info", tableInfo != nil,
+		"has_ttl", ttlExpr != "",
+	}
+
+	if tableInfo != nil {
+		logFields = append(logFields, "table_engine", tableInfo.Engine)
+		if len(tableInfo.EngineParams) > 0 {
+			logFields = append(logFields, "engine_params_count", len(tableInfo.EngineParams))
+		}
 	}
 
 	if tableStats != nil {
-		log.Debug("successfully retrieved source stats",
-			"source_id", source.ID,
-			"table_stats_rows", tableStats.Rows,
-			"column_stats_count", len(columnStats),
-		)
+		logFields = append(logFields, "table_stats_rows", tableStats.Rows)
+		log.Debug("successfully retrieved comprehensive source stats", logFields...)
 	} else {
-		log.Debug("retrieved partial source stats (table stats failed)",
-			"source_id", source.ID,
-			"column_stats_count", len(columnStats),
-		)
+		log.Debug("retrieved partial source stats (table stats failed)", logFields...)
 	}
 
 	// Return the stats object, even if some parts failed (logged warnings)
