@@ -31,6 +31,7 @@ import { getErrorMessage } from '@/api/types';
 import { HistogramService, type HistogramData } from '@/services/HistogramService';
 import { useVariables } from "@/composables/useVariables";
 import { useToast } from "@/composables/useToast";
+import { queryHistoryService } from "@/services/QueryHistoryService";
 
 // Helper function to get formatted table name
 export function getFormattedTableName(source: any): string {
@@ -962,6 +963,27 @@ export const useExploreStore = defineStore("explore", () => {
 
             // Update lastExecutedState after successful execution
             _updateLastExecutedState();
+
+            // Add query to history
+            try {
+              const teamsStore = useTeamsStore();
+              const currentTeamId = teamsStore.currentTeamId;
+              if (currentTeamId && state.data.value.sourceId) {
+                const queryContent = state.data.value.activeMode === 'logchefql'
+                  ? state.data.value.logchefqlCode
+                  : sql;
+
+                queryHistoryService.addQueryEntry({
+                  teamId: currentTeamId,
+                  sourceId: state.data.value.sourceId,
+                  mode: state.data.value.activeMode,
+                  query: queryContent,
+                  title: state.data.value.activeSavedQueryName || undefined
+                });
+              }
+            } catch (error) {
+              console.warn('Failed to save query to history:', error);
+            }
 
             // Restore the relative time if it was set before
             if (relativeTime) {

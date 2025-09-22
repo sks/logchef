@@ -46,6 +46,13 @@
           </Tooltip>
         </TooltipProvider>
 
+        <!-- Query History Button -->
+        <QueryHistoryDropdown
+          :team-id="props.teamId"
+          :source-id="props.sourceId"
+          @load-query="handleLoadQueryFromHistory"
+        />
+
         <!-- Table name indicator (Moved & Always Visible) -->
         <div class="text-xs text-muted-foreground ml-3">
           <template v-if="props.tableName">
@@ -565,6 +572,7 @@ import {
   Eye,
   EyeOff,
   Wand2,
+  History,
 } from "lucide-vue-next";
 import {
   HoverCard,
@@ -573,6 +581,7 @@ import {
 } from "@/components/ui/hover-card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import SavedQueriesDropdown from "@/components/collections/SavedQueriesDropdown.vue";
+import QueryHistoryDropdown from "./QueryHistoryDropdown.vue";
 import type { SavedTeamQuery } from "@/api/savedQueries";
 import { useRoute, useRouter } from "vue-router";
 import { Button } from "@/components/ui/button";
@@ -1831,6 +1840,28 @@ const router = useRouter();
 // Add these computed properties after other computed properties
 const activeSavedQueryName = computed(() => exploreStore.activeSavedQueryName);
 const isEditingExistingQuery = computed(() => !!route.query.query_id);
+
+// Handler for loading query from history
+const handleLoadQueryFromHistory = (mode: 'logchefql' | 'sql', query: string) => {
+  console.log('Loading query from history:', { mode, queryLength: query.length, activeMode: props.activeMode });
+
+  // Convert history mode to editor mode
+  const editorMode = mode === 'logchefql' ? 'logchefql' : 'clickhouse-sql';
+
+  // Emit the change event with the correct structure
+  emit('change', {
+    query: query,
+    mode: editorMode,
+    isUserInput: false,
+  });
+
+  // Switch mode if needed (after content update to avoid timing issues)
+  if (editorMode !== props.activeMode) {
+    nextTick(() => {
+      emit('update:activeMode', editorMode, true);
+    });
+  }
+};
 
 // Add handler for New Query button
 const handleNewQueryClick = () => {

@@ -197,8 +197,8 @@ LIMIT ${limit}`;
    * Used by sqlForExecution computed property
    */
   static ensureCorrectLimit(sql: string, limit: number) {
-    if (!sql.trim()) {
-      return sql;
+    if (!sql || !sql.trim()) {
+      return sql || '';
     }
 
     try {
