@@ -1,4 +1,4 @@
-import type { ASTNode, Token, ParseError, Value } from './types';
+import type { ASTNode, Token, ParseError, Value, NestedField } from './types';
 import { Operator, BoolOperator } from './types';
 
 export class QueryParser {
@@ -160,7 +160,7 @@ export class QueryParser {
 
       return {
         type: 'expression',
-        key: keyToken.value,
+        key: this.parseNestedField(keyToken.value),
         operator: this.mapToOperator(operatorToken.value),
         value: this.parseValue(valueToken.value, (valueToken as any).quoted)
       };
@@ -229,5 +229,57 @@ export class QueryParser {
     }
 
     return value;
+  }
+
+  private parseNestedField(fieldValue: string): string | NestedField {
+    // Check if field contains dots (nested access)
+    if (!fieldValue.includes('.')) {
+      return fieldValue;
+    }
+
+    // Split on dots, handling quoted segments
+    const segments: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    let quoteChar = '';
+    let i = 0;
+
+    while (i < fieldValue.length) {
+      const char = fieldValue[i];
+
+      if (!inQuotes && (char === '"' || char === "'")) {
+        inQuotes = true;
+        quoteChar = char;
+        current += char;
+      } else if (inQuotes && char === quoteChar) {
+        inQuotes = false;
+        current += char;
+        quoteChar = '';
+      } else if (!inQuotes && char === '.') {
+        if (current.trim()) {
+          segments.push(current.trim());
+        }
+        current = '';
+      } else {
+        current += char;
+      }
+      i++;
+    }
+
+    // Add final segment
+    if (current.trim()) {
+      segments.push(current.trim());
+    }
+
+    // If we have multiple segments, create a NestedField
+    if (segments.length > 1) {
+      return {
+        base: segments[0],
+        path: segments.slice(1)
+      };
+    }
+
+    // Fallback to simple field name
+    return fieldValue;
   }
 }

@@ -268,7 +268,10 @@ export const useExploreStore = defineStore("explore", () => {
         timeRange,
         limit,
         logchefqlQuery: logchefqlCode,
-        timezone
+        timezone,
+        schema: sourceDetails.columns ? {
+          columns: sourceDetails.columns.map(col => ({ name: col.name, type: col.type }))
+        } : undefined
       });
 
       return {

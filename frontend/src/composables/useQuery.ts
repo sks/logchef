@@ -281,7 +281,10 @@ export function useQuery() {
         tsField: sourceDetails._meta_ts_field || 'timestamp',
         timeRange: exploreStore.timeRange as TimeRange,
         limit: exploreStore.limit,
-        logchefqlQuery
+        logchefqlQuery,
+        schema: sourceDetails.columns ? {
+          columns: sourceDetails.columns.map(col => ({ name: col.name, type: col.type }))
+        } : undefined
       };
 
       return QueryService.translateLogchefQLToSQL(params);

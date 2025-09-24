@@ -3,12 +3,14 @@
 import { tokenize } from './tokenizer';
 import { QueryParser } from './parser';
 import { SQLVisitor } from './sql-generator';
+import type { SchemaInfo, ColumnInfo } from './sql-generator';
 import type { ParseError, Token } from './types';
 import { Operator as OperatorEnum, BoolOperator } from './types';
 
 // Export types and enums
 export { Operator as OperatorEnum, BoolOperator } from './types';
-export type { ASTNode, Token, ParseError, Value } from './types';
+export type { ASTNode, Token, ParseError, Value, NestedField } from './types';
+export type { SchemaInfo, ColumnInfo } from './sql-generator';
 
 // Export modernized implementation
 export { tokenize } from './tokenizer';
@@ -254,7 +256,7 @@ export const Expression = {};
  */
 export function parseToSQL(
   query: string,
-  options?: { parameterized?: boolean }
+  options?: { parameterized?: boolean; schema?: SchemaInfo }
 ): { sql: string; params: unknown[]; errors: ParseError[] } {
   // Handle empty queries
   if (!query || query.trim() === '') {
@@ -275,7 +277,7 @@ export function parseToSQL(
   }
 
   // Generate SQL from AST
-  const visitor = new SQLVisitor(options?.parameterized);
+  const visitor = new SQLVisitor(options?.parameterized, options?.schema);
   const { sql, params } = visitor.generate(ast);
 
   return { sql, params, errors: [] };

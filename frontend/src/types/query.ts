@@ -1,4 +1,5 @@
 import { type QueryCondition } from '@/utils/logchefql/api';
+import type { SchemaInfo } from '@/utils/logchefql/sql-generator';
 
 import type { DateValue, CalendarDateTime } from '@internationalized/date';
 
@@ -39,6 +40,9 @@ export interface QueryOptions {
 
   // Add optional timezone for query generation
   timezone?: string;
+
+  // Schema information for type-aware SQL generation
+  schema?: SchemaInfo;
 }
 
 /**

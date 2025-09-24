@@ -19,7 +19,7 @@ export type Value = string | number | boolean | null;
 export type ASTNode =
   | {
       type: 'expression';
-      key: string;
+      key: string | NestedField;
       operator: Operator;
       value: Value;
     }
@@ -32,6 +32,11 @@ export type ASTNode =
       type: 'group';
       children: ASTNode[];
     };
+
+export interface NestedField {
+  base: string;
+  path: string[];
+}
 
 export interface Token {
   type: 'key' | 'operator' | 'value' | 'paren' | 'bool';

@@ -2,7 +2,57 @@ import type { Token, ParseError } from './types';
 
 const OPERATOR_CHARS = new Set(['=', '!', '~', '>', '<']);
 const WHITESPACE = /\s/;
-const KEY_CHARS = /[a-zA-Z0-9_./:-]/;
+const KEY_CHARS = /[a-zA-Z0-9_.:-]/;
+const DOT_CHAR = '.';
+
+// Helper function to parse nested field with quoted segments
+function parseNestedField(input: string, startPos: number): {
+  fieldValue: string;
+  endPos: number;
+  hasQuotedSegments: boolean;
+} {
+  let pos = startPos;
+  let fieldValue = '';
+  let hasQuotedSegments = false;
+  let inQuotedSegment = false;
+  let quoteChar = '';
+
+  while (pos < input.length) {
+    const char = input[pos];
+
+    if (inQuotedSegment) {
+      fieldValue += char;
+      if (char === quoteChar) {
+        // End of quoted segment
+        inQuotedSegment = false;
+        hasQuotedSegments = true;
+        quoteChar = '';
+      }
+      pos++;
+    } else {
+      if (char === '"' || char === "'") {
+        // Start of quoted segment
+        inQuotedSegment = true;
+        quoteChar = char;
+        fieldValue += char;
+        pos++;
+      } else if (KEY_CHARS.test(char)) {
+        // Continue building field name
+        fieldValue += char;
+        pos++;
+      } else {
+        // End of field - hit something that's not part of a key
+        break;
+      }
+    }
+  }
+
+  return {
+    fieldValue,
+    endPos: pos,
+    hasQuotedSegments
+  };
+}
 
 export function tokenize(input: string): { tokens: Token[]; errors: ParseError[] } {
   const tokens: Token[] = [];
@@ -152,16 +202,44 @@ if ((char === '"' || char === "'") && !inString) {
       continue;
     }
 
-    // Handle key characters
-    if (KEY_CHARS.test(char)) {
-      if (!current) {
+    // Handle key characters and nested field access
+    if (KEY_CHARS.test(char) || (char === '"' || char === "'")) {
+      // Check if we're starting a new key (not continuing a current token)
+      if (!current || (current.type !== 'key' && current.type !== 'value')) {
+        pushCurrent();
+
+        // Check if this might be a nested field by looking ahead for dots or quotes
+        const possibleNestedField = char === '"' || char === "'" ||
+          /[a-zA-Z0-9_]/.test(char) && (input.substring(i).includes('.') || input.substring(i).includes('"') || input.substring(i).includes("'"));
+
+        if (possibleNestedField) {
+          // Try to parse as nested field
+          const nestedResult = parseNestedField(input, i);
+
+          // If we found a complex nested field, use it
+          if (nestedResult.fieldValue.includes('.') || nestedResult.hasQuotedSegments) {
+            current = {
+              type: 'key',
+              value: nestedResult.fieldValue,
+              line,
+              column,
+              quoted: nestedResult.hasQuotedSegments
+            };
+
+            // Update position based on how much we consumed
+            const consumed = nestedResult.endPos - i;
+            i = nestedResult.endPos - 1; // -1 because the loop will increment
+            column += consumed;
+            continue;
+          }
+        }
+
+        // Fall back to simple key handling
         current = { type: 'key', value: char, line, column };
       } else if (current.type === 'key' || current.type === 'value') {
         current.value += char;
-      } else {
-        pushCurrent();
-        current = { type: 'key', value: char, line, column };
       }
+
       column++;
       continue;
     }

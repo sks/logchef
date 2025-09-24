@@ -1,6 +1,7 @@
 import { parseToSQL, validateQuery, validateQueryWithDetails, extractQueryMetadata } from './index';
 import { tokenize } from './tokenizer';
 import type { Token, Operator } from './types';
+import type { SchemaInfo } from './sql-generator';
 
 // New interface to represent a query condition with strong typing
 export interface QueryCondition {
@@ -13,14 +14,15 @@ export interface QueryCondition {
 /**
  * Translates a LogchefQL query string to SQL WHERE clause conditions.
  * @param query The LogchefQL query string.
+ * @param schema Optional schema information for type-aware SQL generation.
  * @returns SQL WHERE clause conditions string (without the "WHERE" keyword).
  */
-export function translateToSQLConditions(query: string): string {
+export function translateToSQLConditions(query: string, schema?: SchemaInfo): string {
   if (!query || query.trim() === '') {
     return '';
   }
 
-  const { sql, errors } = parseToSQL(query);
+  const { sql, errors } = parseToSQL(query, { schema });
 
   if (errors.length > 0) {
     console.warn('Error parsing LogchefQL query:', errors[0].message);
@@ -71,9 +73,10 @@ function extractConditionsFromTokens(tokens: Token[]): QueryCondition[] {
  * Parses a LogchefQL query and returns the translated SQL conditions.
  * Includes error handling and structured query metadata.
  * @param query The LogchefQL query string.
+ * @param schema Optional schema information for type-aware SQL generation.
  * @returns Object containing success status, SQL conditions, or an error message.
  */
-export function parseAndTranslateLogchefQL(query: string): {
+export function parseAndTranslateLogchefQL(query: string, schema?: SchemaInfo): {
   success: boolean;
   sql?: string;
   error?: string;
@@ -88,7 +91,7 @@ export function parseAndTranslateLogchefQL(query: string): {
     return { success: true, sql: '', meta: { fieldsUsed: [], conditions: [] } };
   }
 
-  const { sql, errors } = parseToSQL(query);
+  const { sql, errors } = parseToSQL(query, { schema });
 
   if (errors.length > 0) {
     return {

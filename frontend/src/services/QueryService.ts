@@ -64,7 +64,8 @@ export class QueryService {
       timeRange,
       limit,
       logchefqlQuery = '',
-      timezone
+      timezone,
+      schema
     } = options;
 
     // --- Input Validation ---
@@ -111,8 +112,8 @@ export class QueryService {
       try {
         // Replace dynamic variables with placeholders while preserving variable names
         const queryForParsing = logchefqlQuery.replace(/{{(\w+)}}/g, "'__VAR_$1__'");
-        // Use the translator to get SQL conditions
-        const translationResult = parseAndTranslateLogchefQL(queryForParsing);
+        // Use the translator to get SQL conditions with schema
+        const translationResult = parseAndTranslateLogchefQL(queryForParsing, schema);
         if (!translationResult.success) {
           // Don't fail completely, just add warning and continue with base query
           warnings.push(translationResult.error || "Failed to translate LogchefQL.");

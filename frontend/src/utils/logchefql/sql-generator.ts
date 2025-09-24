@@ -1,12 +1,23 @@
-import type { ASTNode } from './types';
+import type { ASTNode, NestedField } from './types';
 import { Operator } from './types';
+
+export interface ColumnInfo {
+  name: string;
+  type: string;
+}
+
+export interface SchemaInfo {
+  columns: ColumnInfo[];
+}
 
 export class SQLVisitor {
   private readonly parameterized: boolean;
   private params: unknown[] = [];
+  private schema?: SchemaInfo;
 
-  constructor(parameterized = false) {
+  constructor(parameterized = false, schema?: SchemaInfo) {
     this.parameterized = parameterized;
+    this.schema = schema;
   }
 
   public generate(node: ASTNode): { sql: string; params: unknown[] } {
@@ -31,7 +42,23 @@ export class SQLVisitor {
   }
 
   private visitExpression(node: ASTNode & { type: 'expression' }): string {
-    const column = this.escapeIdentifier(node.key);
+    // Check if we have a nested field
+    if (typeof node.key === 'object' && 'base' in node.key) {
+      const nestedField = node.key as NestedField;
+      const columnType = this.getColumnType(nestedField.base);
+
+
+      return this.generateNestedFieldAccess(
+        nestedField.base,
+        nestedField.path,
+        columnType,
+        node.operator,
+        node.value
+      );
+    }
+
+    // Handle simple field access (original logic)
+    const column = this.escapeIdentifier(node.key as string);
 
     // For regex operations, always handle the value as a string
     // regardless of its original type
@@ -151,5 +178,119 @@ export class SQLVisitor {
     const stringValue = String(value);
     const escapedValue = stringValue.replace(/'/g, "''");
     return `'${escapedValue}'`;
+  }
+
+  private getColumnType(columnName: string): string | null {
+    if (!this.schema) {
+      return null;
+    }
+
+    const column = this.schema.columns.find(col => col.name === columnName);
+    return column?.type ?? null;
+  }
+
+  private isMapType(columnType: string): boolean {
+    const lowerType = columnType.toLowerCase();
+    return lowerType.startsWith('map(');
+  }
+
+  private isJsonType(columnType: string): boolean {
+    const lowerType = columnType.toLowerCase();
+    return lowerType === 'json' || lowerType.startsWith('json(') || lowerType === 'newjson';
+  }
+
+  private isStringType(columnType: string): boolean {
+    const lowerType = columnType.toLowerCase();
+    return lowerType === 'string' ||
+           lowerType.startsWith('string(') ||
+           lowerType.startsWith('fixedstring(') ||
+           lowerType.startsWith('lowcardinality(string)');
+  }
+
+  private generateNestedFieldAccess(
+    baseColumn: string,
+    path: string[],
+    columnType: string | null,
+    operator: Operator,
+    value: unknown
+  ): string {
+    const formattedValue = operator === Operator.REGEX || operator === Operator.NOT_REGEX
+      ? this.formatStringValue(value)
+      : this.formatValue(value);
+
+    // If no schema info, fallback to JSON extraction
+    if (!columnType) {
+      return this.generateJsonExtraction(baseColumn, path, operator, formattedValue);
+    }
+
+    // Handle different column types
+    if (this.isMapType(columnType)) {
+      return this.generateMapAccess(baseColumn, path, operator, formattedValue);
+    } else if (this.isJsonType(columnType)) {
+      return this.generateJsonExtraction(baseColumn, path, operator, formattedValue);
+    } else if (this.isStringType(columnType)) {
+      // String column might contain JSON - try JSON extraction
+      return this.generateJsonExtraction(baseColumn, path, operator, formattedValue);
+    }
+
+    // Fallback to JSON extraction for unknown types
+    return this.generateJsonExtraction(baseColumn, path, operator, formattedValue);
+  }
+
+  private generateMapAccess(
+    baseColumn: string,
+    path: string[],
+    operator: Operator,
+    formattedValue: string
+  ): string {
+    const escapedColumn = this.escapeIdentifier(baseColumn);
+
+    // For ClickHouse Maps, we can access nested keys using dot notation as a single key
+    // e.g., log_attributes['syslog.version'] rather than log_attributes['syslog']['version']
+    const fullKey = path.map(segment => segment.replace(/['"]/g, '')).join('.');
+    const mapAccess = `${escapedColumn}['${fullKey}']`;
+
+    return this.generateComparisonExpression(mapAccess, operator, formattedValue);
+  }
+
+  private generateJsonExtraction(
+    baseColumn: string,
+    path: string[],
+    operator: Operator,
+    formattedValue: string
+  ): string {
+    const escapedColumn = this.escapeIdentifier(baseColumn);
+    const jsonPath = path.map(segment => segment.replace(/['"]/g, '')).join('.');
+
+    // Use JSONExtractString for most operations
+    const jsonExtract = `JSONExtractString(${escapedColumn}, '${jsonPath}')`;
+    return this.generateComparisonExpression(jsonExtract, operator, formattedValue);
+  }
+
+  private generateComparisonExpression(
+    columnExpression: string,
+    operator: Operator,
+    formattedValue: string
+  ): string {
+    switch (operator) {
+      case Operator.REGEX:
+        return `positionCaseInsensitive(${columnExpression}, ${formattedValue}) > 0`;
+      case Operator.NOT_REGEX:
+        return `positionCaseInsensitive(${columnExpression}, ${formattedValue}) = 0`;
+      case Operator.EQUALS:
+        return `${columnExpression} = ${formattedValue}`;
+      case Operator.NOT_EQUALS:
+        return `${columnExpression} != ${formattedValue}`;
+      case Operator.GT:
+        return `${columnExpression} > ${formattedValue}`;
+      case Operator.LT:
+        return `${columnExpression} < ${formattedValue}`;
+      case Operator.GTE:
+        return `${columnExpression} >= ${formattedValue}`;
+      case Operator.LTE:
+        return `${columnExpression} <= ${formattedValue}`;
+      default:
+        return '';
+    }
   }
 }

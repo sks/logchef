@@ -315,8 +315,11 @@ watch(
       if (!logchefQuery.value || logchefQuery.value.trim() === "") {
         lastParsedQuery.value = EMPTY_PARSED_QUERY;
       } else {
-        // Parse the query using LogchefQL parser
-        const result = parseAndTranslateLogchefQL(logchefQuery.value);
+        // Parse the query using LogchefQL parser with schema
+        const schema = sourceDetails.value?.columns ? {
+          columns: sourceDetails.value.columns.map(col => ({ name: col.name, type: col.type }))
+        } : undefined;
+        const result = parseAndTranslateLogchefQL(logchefQuery.value, schema);
         lastParsedQuery.value = result;
       }
     } else {
