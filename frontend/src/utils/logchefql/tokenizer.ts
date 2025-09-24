@@ -143,6 +143,18 @@ if ((char === '"' || char === "'") && !inString) {
       continue;
     }
 
+    // Handle pipe operator
+    if (char === '|') {
+      pushCurrent();
+      tokens.push({
+        type: 'pipe',
+        value: char,
+        position: { line, column },
+      });
+      column++;
+      continue;
+    }
+
     // Handle operator characters
     if (OPERATOR_CHARS.has(char)) {
       // Special handling for multi-character operators

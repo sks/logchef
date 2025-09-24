@@ -9,7 +9,7 @@ import { Operator as OperatorEnum, BoolOperator } from './types';
 
 // Export types and enums
 export { Operator as OperatorEnum, BoolOperator } from './types';
-export type { ASTNode, Token, ParseError, Value, NestedField } from './types';
+export type { ASTNode, Token, ParseError, Value, NestedField, SelectField } from './types';
 export type { SchemaInfo, ColumnInfo } from './sql-generator';
 
 // Export modernized implementation

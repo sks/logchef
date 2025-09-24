@@ -31,7 +31,17 @@ export type ASTNode =
   | {
       type: 'group';
       children: ASTNode[];
+    }
+  | {
+      type: 'query';
+      where?: ASTNode;
+      select?: SelectField[];
     };
+
+export interface SelectField {
+  field: string | NestedField;
+  alias?: string;
+}
 
 export interface NestedField {
   base: string;
@@ -39,7 +49,7 @@ export interface NestedField {
 }
 
 export interface Token {
-  type: 'key' | 'operator' | 'value' | 'paren' | 'bool';
+  type: 'key' | 'operator' | 'value' | 'paren' | 'bool' | 'pipe';
   value: string;
   position: {
     line: number;

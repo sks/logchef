@@ -1,4 +1,4 @@
-import type { ASTNode, Token, ParseError, Value, NestedField } from './types';
+import type { ASTNode, Token, ParseError, Value, NestedField, SelectField } from './types';
 import { Operator, BoolOperator } from './types';
 
 export class QueryParser {
@@ -16,8 +16,40 @@ export class QueryParser {
     }
 
     try {
-      const ast = this.parseExpression();
-      return { ast, errors: this.errors };
+      // Check if this is a query with pipe operator (field selection)
+      const pipeIndex = this.tokens.findIndex(token => token.type === 'pipe');
+
+      if (pipeIndex !== -1) {
+        // Parse query with field selection: WHERE | SELECT
+        const whereTokens = this.tokens.slice(0, pipeIndex);
+        const selectTokens = this.tokens.slice(pipeIndex + 1);
+
+        let whereClause: ASTNode | undefined;
+        if (whereTokens.length > 0) {
+          const whereParser = new QueryParser(whereTokens);
+          const whereResult = whereParser.parse();
+          if (whereResult.errors.length > 0) {
+            this.errors.push(...whereResult.errors);
+          }
+          whereClause = whereResult.ast || undefined;
+        }
+
+        // Parse select fields
+        const selectFields = this.parseSelectFields(selectTokens);
+
+        return {
+          ast: {
+            type: 'query',
+            where: whereClause,
+            select: selectFields
+          },
+          errors: this.errors
+        };
+      } else {
+        // Regular expression parsing
+        const ast = this.parseExpression();
+        return { ast, errors: this.errors };
+      }
     } catch (error) {
       if (error instanceof Error) {
         const token = this.position < this.tokens.length
@@ -281,5 +313,34 @@ export class QueryParser {
 
     // Fallback to simple field name
     return fieldValue;
+  }
+
+  private parseSelectFields(tokens: Token[]): SelectField[] {
+    if (tokens.length === 0) {
+      return [];
+    }
+
+    const fields: SelectField[] = [];
+    let i = 0;
+
+    while (i < tokens.length) {
+      const token = tokens[i];
+
+      if (token.type === 'key') {
+        const field = this.parseNestedField(token.value);
+        fields.push({ field });
+        i++;
+
+        // Skip comma if present (future enhancement for comma-separated fields)
+        if (i < tokens.length && tokens[i].value === ',') {
+          i++;
+        }
+      } else {
+        // Skip unexpected tokens
+        i++;
+      }
+    }
+
+    return fields;
   }
 }

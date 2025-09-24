@@ -1,4 +1,5 @@
 import { parseAndTranslateLogchefQL } from '@/utils/logchefql/api';
+import { tokenize, QueryParser, SQLVisitor } from '@/utils/logchefql/index';
 import { validateSQL, validateSQLWithDetails, analyzeQuery } from '@/utils/clickhouse-sql';
 import {
   createTimeRangeCondition,
@@ -103,6 +104,7 @@ export class QueryService {
     // --- Translate LogchefQL ---
     const warnings: string[] = [];
     let logchefqlConditions = '';
+    let parsedAST: any = null; // Store the parsed AST for later use
     const meta: NonNullable<QueryResult['meta']> = {
       fieldsUsed: [],
       operations: ['sort', 'limit'] // Base operations
@@ -112,15 +114,23 @@ export class QueryService {
       try {
         // Replace dynamic variables with placeholders while preserving variable names
         const queryForParsing = logchefqlQuery.replace(/{{(\w+)}}/g, "'__VAR_$1__'");
-        // Use the translator to get SQL conditions with schema
-        const translationResult = parseAndTranslateLogchefQL(queryForParsing, schema);
-        if (!translationResult.success) {
-          // Don't fail completely, just add warning and continue with base query
-          warnings.push(translationResult.error || "Failed to translate LogchefQL.");
+
+        // Parse the query to get the AST
+        const { tokens } = tokenize(queryForParsing);
+        const parser = new QueryParser(tokens);
+        const { ast, errors } = parser.parse();
+
+        if (errors.length > 0 || !ast) {
+          warnings.push(errors[0]?.message || "Failed to parse LogchefQL query.");
         } else {
-          // Assign the translated conditions and convert __VAR_ placeholders back to {{variable}} format
-          logchefqlConditions = translationResult.sql || "";
-          // Convert __VAR_variable__ back to {{variable}} format for consistent display
+          parsedAST = ast;
+
+          // Generate SQL conditions from AST
+          const visitor = new SQLVisitor(false, schema);
+          const { sql } = visitor.generate(ast);
+          logchefqlConditions = sql;
+
+          // Convert __VAR_ placeholders back to {{variable}} format for consistent display
           logchefqlConditions = logchefqlConditions.replace(/'__VAR_(\w+)__'/g, '{{$1}}');
           // Also handle cases where quotes might be missing
           logchefqlConditions = logchefqlConditions.replace(/__VAR_(\w+)__/g, '{{$1}}');
@@ -130,15 +140,13 @@ export class QueryService {
             meta.operations.push('filter');
           }
 
-          // If translationResult has meta and fieldsUsed, add them to our meta
-          if (translationResult.meta && Array.isArray(translationResult.meta.fieldsUsed)) {
-            meta.fieldsUsed = [...translationResult.meta.fieldsUsed];
-          }
+          // Extract field information from the tokens
+          const fieldsUsed = tokens
+            .filter(token => token.type === 'key')
+            .map(token => token.value)
+            .filter((field, index, self) => self.indexOf(field) === index);
 
-          // Add conditions if available from the enhanced translation
-          if (translationResult.meta && Array.isArray(translationResult.meta.conditions)) {
-            meta.conditions = [...translationResult.meta.conditions];
-          }
+          meta.fieldsUsed = fieldsUsed;
         }
       } catch (error: any) {
         // Capture error but don't fail - use base query instead
@@ -153,8 +161,18 @@ export class QueryService {
     }
 
     // --- Assemble the final query string ---
+    // Generate SELECT clause - check if we have custom field selection
+    let selectClause = 'SELECT *';
+
+    // Check if the parsed AST has custom select fields (pipe operator was used)
+    if (parsedAST && parsedAST.type === 'query' && parsedAST.select) {
+      const visitor = new SQLVisitor(false, schema);
+      const customSelectClause = visitor.generateSelectClause(parsedAST.select, tsField);
+      selectClause = `SELECT ${customSelectClause}`;
+    }
+
     const finalSqlParts = [
-      `SELECT *`,
+      selectClause,
       `FROM ${formattedTableName}`,
       whereClause,
       orderByClause,

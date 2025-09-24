@@ -1,4 +1,4 @@
-import type { ASTNode, NestedField } from './types';
+import type { ASTNode, NestedField, SelectField } from './types';
 import { Operator } from './types';
 
 export interface ColumnInfo {
@@ -28,6 +28,29 @@ export class SQLVisitor {
     };
   }
 
+  public generateSelectClause(selectFields: SelectField[], defaultTimestampField?: string): string {
+    if (!selectFields || selectFields.length === 0) {
+      return '*';
+    }
+
+    const columns: string[] = [];
+
+    // Always include timestamp field first if specified
+    if (defaultTimestampField) {
+      columns.push(this.escapeIdentifier(defaultTimestampField));
+    }
+
+    // Generate column expressions for each select field
+    for (const selectField of selectFields) {
+      const columnExpr = this.generateSelectFieldExpression(selectField);
+      if (columnExpr) {
+        columns.push(columnExpr);
+      }
+    }
+
+    return columns.length > 0 ? columns.join(',\n    ') : '*';
+  }
+
   private visit(node: ASTNode): string {
     switch (node.type) {
       case 'expression':
@@ -36,9 +59,20 @@ export class SQLVisitor {
         return this.visitLogical(node);
       case 'group':
         return this.visitGroup(node);
+      case 'query':
+        return this.visitQuery(node);
       default:
         return '';
     }
+  }
+
+  private visitQuery(node: ASTNode & { type: 'query' }): string {
+    // For query nodes, we only generate the WHERE clause here
+    // The SELECT clause is handled separately by generateSelectClause
+    if (node.where) {
+      return this.visit(node.where);
+    }
+    return '';
   }
 
   private visitExpression(node: ASTNode & { type: 'expression' }): string {
@@ -260,10 +294,13 @@ export class SQLVisitor {
     formattedValue: string
   ): string {
     const escapedColumn = this.escapeIdentifier(baseColumn);
-    const jsonPath = path.map(segment => segment.replace(/['"]/g, '')).join('.');
 
-    // Use JSONExtractString for most operations
-    const jsonExtract = `JSONExtractString(${escapedColumn}, '${jsonPath}')`;
+    // ClickHouse JSONExtractString requires separate parameters for nested access
+    // Convert path array to comma-separated quoted parameters
+    const pathParams = path.map(segment => `'${segment.replace(/['"]/g, '')}'`).join(', ');
+
+    // Use JSONExtractString with proper ClickHouse syntax
+    const jsonExtract = `JSONExtractString(${escapedColumn}, ${pathParams})`;
     return this.generateComparisonExpression(jsonExtract, operator, formattedValue);
   }
 
@@ -291,6 +328,46 @@ export class SQLVisitor {
         return `${columnExpression} <= ${formattedValue}`;
       default:
         return '';
+    }
+  }
+
+  private generateSelectFieldExpression(selectField: SelectField): string {
+    const { field, alias } = selectField;
+
+    let columnExpression: string;
+
+    // Check if it's a nested field
+    if (typeof field === 'object' && 'base' in field) {
+      const nestedField = field as NestedField;
+      const columnType = this.getColumnType(nestedField.base);
+
+      if (columnType && this.isMapType(columnType)) {
+        // Map column: use subscript notation
+        const escapedColumn = this.escapeIdentifier(nestedField.base);
+        const fullKey = nestedField.path.map(segment => segment.replace(/['"]/g, '')).join('.');
+        columnExpression = `${escapedColumn}['${fullKey}']`;
+      } else {
+        // JSON or String column: use JSONExtractString
+        const escapedColumn = this.escapeIdentifier(nestedField.base);
+        const pathParams = nestedField.path.map(segment => `'${segment.replace(/['"]/g, '')}'`).join(', ');
+        columnExpression = `JSONExtractString(${escapedColumn}, ${pathParams})`;
+      }
+    } else {
+      // Simple field
+      columnExpression = this.escapeIdentifier(field as string);
+    }
+
+    // Add alias if provided, or generate one for nested fields
+    if (alias) {
+      return `${columnExpression} AS ${this.escapeIdentifier(alias)}`;
+    } else if (typeof field === 'object' && 'base' in field) {
+      // Auto-generate alias for nested fields
+      const nestedField = field as NestedField;
+      const autoAlias = `${nestedField.base}_${nestedField.path.join('_')}`;
+      return `${columnExpression} AS ${this.escapeIdentifier(autoAlias)}`;
+    } else {
+      // Simple field without alias
+      return columnExpression;
     }
   }
 }
