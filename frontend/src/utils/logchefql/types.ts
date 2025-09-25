@@ -59,6 +59,8 @@ export interface Token {
   };
   // Indicates the token originated from a quoted string literal
   quoted?: boolean;
+  // Indicates the token is potentially incomplete (e.g., unterminated string)
+  incomplete?: boolean;
 }
 
 export interface ParseError {

@@ -126,7 +126,7 @@ describe('LogChefQL Comprehensive Test Suite', () => {
 
         const unterminatedError = errors.find(e => e.code === 'UNTERMINATED_STRING');
         expect(unterminatedError).toBeTruthy();
-        expect(unterminatedError?.message).toBe('Unterminated string literal');
+        expect(unterminatedError?.message).toContain('Unterminated string literal');
       });
 
       it('should detect unterminated single-quoted strings', () => {

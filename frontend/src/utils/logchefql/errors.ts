@@ -5,6 +5,8 @@ export interface UserFriendlyError {
   message: string;
   suggestion?: string;
   position?: { line: number; column: number };
+  examples?: string[];
+  severity?: 'error' | 'warning' | 'info';
 }
 
 export class LogChefQLErrorHandler {
@@ -13,54 +15,85 @@ export class LogChefQLErrorHandler {
       'UNTERMINATED_STRING': {
         code: 'UNTERMINATED_STRING',
         message: 'Unterminated string literal',
-        suggestion: 'Close the string with a matching quote character'
+        suggestion: 'Close the string with a matching quote character',
+        examples: ['field = "value"', "field = 'value'"],
+        severity: 'error'
       },
       'UNEXPECTED_END': {
         code: 'UNEXPECTED_END',
         message: 'Unexpected end of input',
-        suggestion: 'Complete your query - it appears to be cut off'
+        suggestion: 'Complete your query - it appears to be cut off',
+        examples: ['field = "value"', 'field > 100 and status = "active"'],
+        severity: 'error'
       },
       'UNEXPECTED_TOKEN': {
         code: 'UNEXPECTED_TOKEN',
         message: context ? `Unexpected token: "${context}"` : 'Unexpected token',
-        suggestion: 'Check for typos and valid LogChefQL syntax'
+        suggestion: 'Check for typos and valid LogChefQL syntax',
+        examples: ['field = "value"', 'field.nested = 123', '(field = "a") and (field = "b")'],
+        severity: 'error'
       },
       'EXPECTED_OPERATOR': {
         code: 'EXPECTED_OPERATOR',
         message: 'Expected an operator after field name',
-        suggestion: 'Add an operator like =, !=, >, <, >=, <=, ~, !~'
+        suggestion: 'Add an operator after the field name',
+        examples: ['field = "value"', 'count > 100', 'name ~ "pattern"'],
+        severity: 'error'
       },
       'EXPECTED_VALUE': {
         code: 'EXPECTED_VALUE',
         message: 'Expected a value after operator',
-        suggestion: 'Add a value after the operator (e.g., field = "value")'
+        suggestion: 'Add a value after the operator',
+        examples: ['field = "value"', 'count > 100', 'flag = true'],
+        severity: 'error'
       },
       'EXPECTED_CLOSING_PAREN': {
         code: 'EXPECTED_CLOSING_PAREN',
         message: 'Expected closing parenthesis',
-        suggestion: 'Add a closing parenthesis ) to match the opening one'
+        suggestion: 'Add a closing parenthesis ) to match the opening one',
+        examples: ['(field = "value")', '(count > 10) and (status = "active")'],
+        severity: 'error'
       },
       'UNKNOWN_OPERATOR': {
         code: 'UNKNOWN_OPERATOR',
         message: context ? `Unknown operator: "${context}"` : 'Unknown operator',
-        suggestion: 'Use a valid operator: =, !=, >, <, >=, <=, ~, !~'
+        suggestion: 'Use one of the supported operators',
+        examples: ['field = "exact"', 'field != "not"', 'field ~ "regex"', 'count > 100', 'count >= 50'],
+        severity: 'error'
       },
       'UNKNOWN_BOOLEAN_OPERATOR': {
         code: 'UNKNOWN_BOOLEAN_OPERATOR',
         message: context ? `Unknown boolean operator: "${context}"` : 'Unknown boolean operator',
-        suggestion: 'Use "and" or "or" to combine conditions'
+        suggestion: 'Use "and" or "or" to combine conditions (case insensitive)',
+        examples: ['field = "a" and field = "b"', 'count > 10 or status = "active"'],
+        severity: 'error'
       },
       'INVALID_TOKEN_TYPE': {
         code: 'INVALID_TOKEN_TYPE',
         message: context ? `Invalid token type: "${context}"` : 'Invalid token type',
-        suggestion: 'Check your query syntax'
+        suggestion: 'Check your query syntax',
+        examples: ['field = "value"', 'field.nested.key = 123'],
+        severity: 'error'
       },
+      'PARSE_ERROR': {
+        code: 'PARSE_ERROR',
+        message: error.message || 'Syntax error in query',
+        suggestion: 'Check your query syntax and structure',
+        examples: ['field = "value"', '(field1 = "a" or field2 = "b") and field3 > 10'],
+        severity: 'error'
+      }
     };
 
-    return errorMap[error.code] || {
+    const baseError = errorMap[error.code] || {
       code: 'UNKNOWN_ERROR',
       message: error.message,
-      suggestion: 'Check your query syntax'
+      suggestion: 'Check your query syntax for errors',
+      severity: 'error' as const
+    };
+
+    return {
+      ...baseError,
+      position: error.position
     };
   }
 
@@ -69,8 +102,49 @@ export class LogChefQLErrorHandler {
       code: 'CUSTOM_ERROR',
       message,
       position,
-      suggestion: 'Review your query and try again'
+      suggestion: 'Review your query and try again',
+      severity: 'error'
     };
+  }
+
+  /**
+   * Format a user-friendly error message with position information and examples
+   */
+  static formatErrorMessage(error: UserFriendlyError, originalQuery?: string): string {
+    let formatted = error.message;
+
+    // Add position information if available
+    if (error.position) {
+      formatted += ` at line ${error.position.line}, column ${error.position.column}`;
+    }
+
+    // Add context from original query if available
+    if (originalQuery && error.position) {
+      const lines = originalQuery.split('\n');
+      const errorLine = lines[error.position.line - 1];
+      if (errorLine) {
+        formatted += `\n\nIn: ${errorLine}`;
+        if (error.position.column > 1) {
+          const pointer = ' '.repeat(4 + error.position.column - 1) + '^';
+          formatted += `\n${pointer}`;
+        }
+      }
+    }
+
+    // Add suggestion
+    if (error.suggestion) {
+      formatted += `\n\nSuggestion: ${error.suggestion}`;
+    }
+
+    // Add examples if available
+    if (error.examples && error.examples.length > 0) {
+      formatted += `\n\nExamples:`;
+      error.examples.forEach(example => {
+        formatted += `\n  ${example}`;
+      });
+    }
+
+    return formatted;
   }
 
   static createParseError(code: string, message?: string, position?: { line: number; column: number }): ParseError {

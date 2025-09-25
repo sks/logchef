@@ -143,12 +143,18 @@ export function tokenize(input: string): { tokens: Token[]; errors: ParseError[]
       const word = input.slice(i).match(/^[a-zA-Z]+/)?.[0] ?? '';
       const lower = word.toLowerCase();
 
-      // Check if this is a complete word (not part of another word)
+      // More robust word boundary detection for boolean operators
       const prevChar = i > 0 ? input[i - 1] : '';
       const nextChar = i + word.length < input.length ? input[i + word.length] : '';
-      const isWordBoundary = (!prevChar || /\s/.test(prevChar)) && (!nextChar || /\s/.test(nextChar));
 
-      if ((lower === 'and' || lower === 'or') && isWordBoundary) {
+      // Previous character must be whitespace, operator, paren, pipe, or start of string
+      const validPrev = !prevChar || /[\s=!~><()|\-+*/]/.test(prevChar);
+      // Next character must be whitespace, operator, paren, pipe, or end of string
+      const validNext = !nextChar || /[\s=!~><()|\-+*/]/.test(nextChar);
+
+      const isValidBooleanContext = validPrev && validNext;
+
+      if ((lower === 'and' || lower === 'or') && isValidBooleanContext) {
         pushCurrent();
         tokens.push({
           type: 'bool',
@@ -300,11 +306,30 @@ if ((char === '"' || char === "'") && !inString) {
 
   // Check for unterminated string literals
   if (inString) {
+    // Provide better error context with the string delimiter used
+    const currentValue = current?.value || '';
+    const preview = currentValue.length > 20 ? currentValue.substring(0, 20) + '...' : currentValue;
+
     errors.push({
       code: 'UNTERMINATED_STRING',
-      message: 'Unterminated string literal',
-      position: { line, column }
+      message: `Unterminated string literal starting with ${stringDelimiter}${preview}${stringDelimiter}. Missing closing quote.`,
+      position: {
+        line: current?.line || line,
+        column: current?.column || column
+      }
     });
+
+    // Recovery: Push the current string token anyway to allow partial parsing
+    if (current) {
+      tokens.push({
+        type: current.type,
+        value: current.value,
+        position: { line: current.line, column: current.column },
+        quoted: true,
+        // Mark this as potentially incomplete for debugging
+        incomplete: true
+      });
+    }
   }
 
   return { tokens, errors };

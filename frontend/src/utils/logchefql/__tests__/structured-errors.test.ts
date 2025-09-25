@@ -30,7 +30,7 @@ describe('LogChefQL Structured Error Handling', () => {
 
       expect(userError.code).toBe('UNKNOWN_ERROR');
       expect(userError.message).toBe('Some custom error');
-      expect(userError.suggestion).toBe('Check your query syntax');
+      expect(userError.suggestion).toBe('Check your query syntax for errors');
     });
   });
 
