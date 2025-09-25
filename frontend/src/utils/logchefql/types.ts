@@ -22,6 +22,8 @@ export type ASTNode =
       key: string | NestedField;
       operator: Operator;
       value: Value;
+      // Preserve whether the original value was quoted for display/formatting purposes
+      quoted?: boolean;
     }
   | {
       type: 'logical';

@@ -93,7 +93,8 @@ export function tokenize(input: string): { tokens: Token[]; errors: ParseError[]
         type: current.type,
         value: current.value,
         position: { line: current.line, column: current.column },
-        quoted: current.quoted,
+        // Only include quoted property if it was explicitly quoted
+        ...(current.quoted === true ? { quoted: true } : {}),
       });
       current = null;
     }

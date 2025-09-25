@@ -240,11 +240,13 @@ export class QueryParser {
       const operator = this.mapToOperator(operatorToken.value);
       if (!operator) return null;
 
+      const quoted = Boolean((valueToken as any).quoted);
       return {
         type: 'expression',
         key: this.parseNestedField(keyToken.value),
         operator,
-        value: this.parseValue(valueToken.value, (valueToken as any).quoted)
+        value: this.parseValue(valueToken.value, quoted),
+        ...(quoted ? { quoted: true } : {}) // Only include if quoted
       };
     }
 

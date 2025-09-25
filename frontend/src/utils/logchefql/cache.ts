@@ -7,23 +7,27 @@ interface CacheEntry {
   params: unknown[];
   timestamp: number;
   accessCount: number;
+  schemaVersion?: string; // Track schema version for invalidation
 }
 
 export class QueryCache {
   private cache = new Map<string, CacheEntry>();
   private maxSize: number;
   private ttl: number;
+  private totalRequests: number = 0;
+  private totalHits: number = 0;
 
   constructor(maxSize: number = 100, ttl: number = 5 * 60 * 1000) {
     this.maxSize = maxSize;
     this.ttl = ttl;
   }
 
-  get(query: string, options?: { schema?: SchemaInfo }): {
+  get(query: string, options?: { schema?: SchemaInfo; schemaVersion?: string }): {
     ast: ASTNode;
     sql: string;
     params: unknown[];
   } | null {
+    this.totalRequests++;
     const key = this.generateCacheKey(query, options);
     const entry = this.cache.get(key);
 
@@ -35,8 +39,20 @@ export class QueryCache {
       return null;
     }
 
-    // Update access statistics
+    // Check schema version compatibility
+    // Both sides should use the same default version for comparison
+    const requestedVersion = options?.schemaVersion || 'v1';
+    const entryVersion = entry.schemaVersion || 'v1';
+    if (requestedVersion !== entryVersion) {
+      this.cache.delete(key);
+      return null;
+    }
+
+    // Cache hit - update statistics and refresh TTL
+    this.totalHits++;
     entry.accessCount++;
+    entry.timestamp = Date.now(); // Refresh TTL on cache hit (LRU-ish behavior)
+
     return {
       ast: entry.ast,
       sql: entry.sql,
@@ -49,7 +65,7 @@ export class QueryCache {
     ast: ASTNode,
     sql: string,
     params: unknown[],
-    options?: { schema?: SchemaInfo }
+    options?: { schema?: SchemaInfo; schemaVersion?: string }
   ): void {
     const key = this.generateCacheKey(query, options);
 
@@ -63,15 +79,17 @@ export class QueryCache {
       sql,
       params,
       timestamp: Date.now(),
-      accessCount: 1
+      accessCount: 1,
+      schemaVersion: options?.schemaVersion || 'v1'
     });
   }
 
-  private generateCacheKey(query: string, options?: { schema?: SchemaInfo }): string {
+  private generateCacheKey(query: string, options?: { schema?: SchemaInfo; schemaVersion?: string }): string {
     const schemaHash = options?.schema
       ? this.hash(JSON.stringify(options.schema))
       : 'no-schema';
-    return `${query}:${schemaHash}`;
+    const schemaVersion = options?.schemaVersion || 'v1';
+    return `${query}:${schemaHash}:${schemaVersion}`;
   }
 
   private hash(str: string): string {
@@ -103,16 +121,52 @@ export class QueryCache {
 
   clear(): void {
     this.cache.clear();
+    this.totalRequests = 0;
+    this.totalHits = 0;
   }
 
-  getStats(): { size: number; hitRate: number; totalAccesses: number } {
+  /**
+   * Invalidate cache entries that don't match the current schema version
+   */
+  invalidateBySchemaVersion(currentSchemaVersion: string): number {
+    let invalidatedCount = 0;
+    const keysToDelete: string[] = [];
+
+    for (const [key, entry] of this.cache.entries()) {
+      const entryVersion = entry.schemaVersion || 'v1';
+      if (entryVersion !== currentSchemaVersion) {
+        keysToDelete.push(key);
+        invalidatedCount++;
+      }
+    }
+
+    keysToDelete.forEach(key => this.cache.delete(key));
+    return invalidatedCount;
+  }
+
+  /**
+   * Get entries by schema version for debugging
+   */
+  getEntriesBySchemaVersion(): Map<string, number> {
+    const versionCounts = new Map<string, number>();
+
+    for (const entry of this.cache.values()) {
+      const version = entry.schemaVersion || 'unknown';
+      versionCounts.set(version, (versionCounts.get(version) || 0) + 1);
+    }
+
+    return versionCounts;
+  }
+
+  getStats(): { size: number; hitRate: number; totalRequests: number; totalHits: number; totalAccesses: number } {
     const entries = Array.from(this.cache.values());
     const totalAccesses = entries.reduce((sum, entry) => sum + entry.accessCount, 0);
-    const totalRequests = totalAccesses; // This would need to be tracked separately
 
     return {
       size: this.cache.size,
-      hitRate: totalAccesses > 0 ? (totalAccesses / totalRequests) * 100 : 0,
+      hitRate: this.totalRequests > 0 ? (this.totalHits / this.totalRequests) * 100 : 0,
+      totalRequests: this.totalRequests,
+      totalHits: this.totalHits,
       totalAccesses
     };
   }
