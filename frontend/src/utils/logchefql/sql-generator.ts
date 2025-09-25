@@ -281,7 +281,15 @@ export class SQLVisitor {
 
     // For ClickHouse Maps, we can access nested keys using dot notation as a single key
     // e.g., log_attributes['syslog.version'] rather than log_attributes['syslog']['version']
-    const fullKey = path.map(segment => segment.replace(/['"]/g, '')).join('.');
+    const esc = (s: string) => s.replace(/['\\]/g, m => (m === '\\' ? '\\\\' : "''"));
+    const stripSurroundingQuotes = (s: string) => {
+      // Remove surrounding quotes but preserve quotes that are part of the content
+      if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+        return s.slice(1, -1);
+      }
+      return s;
+    };
+    const fullKey = path.map(segment => esc(stripSurroundingQuotes(segment))).join('.');
     const mapAccess = `${escapedColumn}['${fullKey}']`;
 
     return this.generateComparisonExpression(mapAccess, operator, formattedValue);
@@ -297,7 +305,15 @@ export class SQLVisitor {
 
     // ClickHouse JSONExtractString requires separate parameters for nested access
     // Convert path array to comma-separated quoted parameters
-    const pathParams = path.map(segment => `'${segment.replace(/['"]/g, '')}'`).join(', ');
+    const esc = (s: string) => s.replace(/['\\]/g, m => (m === '\\' ? '\\\\' : "''"));
+    const stripSurroundingQuotes = (s: string) => {
+      // Remove surrounding quotes but preserve quotes that are part of the content
+      if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+        return s.slice(1, -1);
+      }
+      return s;
+    };
+    const pathParams = path.map(segment => `'${esc(stripSurroundingQuotes(segment))}'`).join(', ');
 
     // Use JSONExtractString with proper ClickHouse syntax
     const jsonExtract = `JSONExtractString(${escapedColumn}, ${pathParams})`;
@@ -344,12 +360,28 @@ export class SQLVisitor {
       if (columnType && this.isMapType(columnType)) {
         // Map column: use subscript notation
         const escapedColumn = this.escapeIdentifier(nestedField.base);
-        const fullKey = nestedField.path.map(segment => segment.replace(/['"]/g, '')).join('.');
+        const esc = (s: string) => s.replace(/['\\]/g, m => (m === '\\' ? '\\\\' : "''"));
+        const stripSurroundingQuotes = (s: string) => {
+          // Remove surrounding quotes but preserve quotes that are part of the content
+          if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+            return s.slice(1, -1);
+          }
+          return s;
+        };
+        const fullKey = nestedField.path.map(segment => esc(stripSurroundingQuotes(segment))).join('.');
         columnExpression = `${escapedColumn}['${fullKey}']`;
       } else {
         // JSON or String column: use JSONExtractString
         const escapedColumn = this.escapeIdentifier(nestedField.base);
-        const pathParams = nestedField.path.map(segment => `'${segment.replace(/['"]/g, '')}'`).join(', ');
+        const esc = (s: string) => s.replace(/['\\]/g, m => (m === '\\' ? '\\\\' : "''"));
+        const stripSurroundingQuotes = (s: string) => {
+          // Remove surrounding quotes but preserve quotes that are part of the content
+          if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+            return s.slice(1, -1);
+          }
+          return s;
+        };
+        const pathParams = nestedField.path.map(segment => `'${esc(stripSurroundingQuotes(segment))}'`).join(', ');
         columnExpression = `JSONExtractString(${escapedColumn}, ${pathParams})`;
       }
     } else {
