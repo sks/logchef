@@ -36,7 +36,8 @@ DEVELOPMENT_GOALS.md
 *.db*
 .vscode/
 bin/
-cmd/server/ui/
+cmd/server/ui/*
+!cmd/server/ui/.placeholder
 frontend/stats.html
 
 # Docs
