@@ -40,6 +40,11 @@ cmd/server/ui/*
 !cmd/server/ui/.placeholder
 frontend/stats.html
 
+# Nix development shell cache directories
+.gopath/
+.cache/
+.pnpm/
+
 # Docs
 docs/dist/*
 docs/node_modules/*

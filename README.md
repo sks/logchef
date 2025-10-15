@@ -43,6 +43,26 @@ Access the Logchef interface at `http://localhost:8125`.
 
 For comprehensive documentation, including setup guides, configuration options, and API references, please visit [logchef.app](https://logchef.app).
 
+## Contributing
+
+We welcome contributions! To get started:
+
+1. **Development Setup**: See our [Development Setup Guide](https://logchef.app/contributing/setup) or use the Nix flake:
+   ```bash
+   nix develop
+   just sqlc-generate
+   just dev-docker
+   just build
+   ```
+
+2. **Read the Guidelines**: Check [CONTRIBUTING.md](./CONTRIBUTING.md) for detailed contribution guidelines
+
+3. **Find an Issue**: Look for issues labeled `good first issue` or `help wanted`
+
+4. **Make Your Changes**: Follow our coding standards and run `just check` before submitting
+
+For questions or help, open an issue or start a discussion on GitHub.
+
 ## Screenshots
 
 ![Logchef Light Explore View](screenshots/logchef_light_explore.png)
