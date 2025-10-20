@@ -5,7 +5,7 @@ project_name: logchef
 env:
   - GO111MODULE=on
   - CGO_ENABLED=0
-  - GITHUB_ORG=mr-karan
+  - GITHUB_ORG=sks
 
 before:
   hooks:

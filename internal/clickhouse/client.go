@@ -2,6 +2,7 @@ package clickhouse
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -91,6 +92,7 @@ func NewClient(opts ClientOptions, logger *slog.Logger) (*Client, error) {
 			Username: opts.Username,
 			Password: opts.Password,
 		},
+		TLS: &tls.Config{},
 		Settings: clickhouse.Settings{
 			// Default settings.
 			"max_execution_time": 60,
